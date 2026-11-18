@@ -1,0 +1,12 @@
+{
+  "name": "rapti-floodplain",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "python3 -m http.server --bind 127.0.0.1 5184"
+  },
+  "dependencies": {
+    "three": "0.180.0"
+  }
+}
