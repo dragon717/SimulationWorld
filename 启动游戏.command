@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 import fcntl
+import json
 import os
-from pathlib import Path
 import signal
 import subprocess
 import sys
 import time
+from http.client import HTTPException
+from urllib.request import urlopen
+
+from backend import BINARY, PORT, ROOT, SERVER_ARGS, prepare
 
 
-ROOT = Path(__file__).resolve().parent
-PORT = 5184
 URL = f"http://127.0.0.1:{PORT}/"
-SERVER_ARGS = ["-m", "http.server", "--bind", "127.0.0.1", str(PORT)]
+LEGACY_ARGS = f" -m http.server --bind 127.0.0.1 {PORT}"
 
 
 def output(*args):
@@ -28,7 +30,9 @@ def stop_listener(pid):
         return
     command = output("ps", "-ww", "-p", str(pid), "-o", "command=")
     project_cwd = output("lsof", "-nP", "-a", "-p", str(pid), "-d", "cwd", "-t", str(ROOT))
-    own_preview = project_cwd == str(pid) and command.endswith(" " + " ".join(SERVER_ARGS))
+    own_preview = project_cwd == str(pid) and (
+        command == " ".join([str(BINARY), *SERVER_ARGS]) or command.endswith(LEGACY_ARGS)
+    )
     if not own_preview:
         name = output("ps", "-p", str(pid), "-o", "comm=")
         message = f"端口 {PORT} 由其他程序 {name}（PID {pid}）占用。"
@@ -48,19 +52,23 @@ def stop_listener(pid):
 
 
 def start():
-    if not (ROOT / "node_modules/three/build/three.module.js").is_file():
-        subprocess.run(["npm", "ci"], check=True)
+    prepare()
     for pid in listeners():
         stop_listener(pid)
     process = subprocess.Popen(
-        [sys.executable, *SERVER_ARGS], stdin=subprocess.DEVNULL,
+        [str(BINARY), *SERVER_ARGS], stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
     )
     for _ in range(50):
         if process.poll() is not None:
             raise SystemExit(f"预览启动失败，请检查端口 {PORT}。")
         if process.pid in listeners():
-            return
+            try:
+                with urlopen(URL + "api/state", timeout=2) as response:
+                    if "animals" in json.load(response):
+                        return
+            except (OSError, ValueError, HTTPException):
+                pass
         time.sleep(.1)
     process.terminate()
     raise SystemExit("预览未在预期时间内启动。")

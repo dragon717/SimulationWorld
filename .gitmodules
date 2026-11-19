@@ -1,0 +1,3 @@
+[submodule "upstream/SimulationWorld"]
+	path = upstream/SimulationWorld
+	url = https://github.com/HryYyR/SimulationWorld.git

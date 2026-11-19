@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "python3 -m http.server --bind 127.0.0.1 5184"
+    "start": "python3 backend.py",
+    "test": "node --test tests/ecosystem.test.js"
   },
   "dependencies": {
     "three": "0.180.0"

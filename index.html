@@ -6,7 +6,7 @@
 <style>
   :root {color-scheme:light; color:#233e34; background:#f4f1e8; font:16px Georgia,"Songti SC","Noto Serif CJK SC",serif}
   * {box-sizing:border-box}
-  body {margin:0; min-height:100svh; display:grid; grid-template-rows:auto minmax(300px,1fr) auto}
+  body {margin:0; min-height:100svh; display:grid; grid-template-rows:auto minmax(300px,1fr) auto auto}
   header, footer {display:flex; align-items:center; gap:12px 30px; padding:18px clamp(18px,4vw,70px); flex-wrap:wrap}
   header {justify-content:space-between; border-bottom:1px solid #c7c7b7}
   h1 {font-size:clamp(24px,3.8vw,45px); font-weight:500; margin:0; letter-spacing:.065em}
@@ -21,9 +21,19 @@
   main {position:relative; min-height:45svh; overflow:hidden; background:#e9e6da}
   main img,main canvas {display:block; width:100%; height:100%; position:absolute; inset:0; object-fit:contain}
   main [hidden] {display:none}
-  #status {position:absolute; left:18px; bottom:10px; margin:0; padding:5px 9px; background:#fffcf0; font-size:14px}
+  #status,#individual {position:absolute; left:18px; bottom:10px; margin:0; padding:5px 9px; background:#fffcf0; font-size:14px}
   footer {justify-content:space-between; color:#546155; padding-block:12px}
   footer a {color:inherit}
+  #simulation {padding:10px clamp(18px,4vw,70px);border-top:1px solid #c7c7b7;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 18px;font:14px system-ui,sans-serif}
+  #simulation[hidden] {display:none}
+  .commands,.readings {display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px}
+  .commands button {border-color:#bdc3b5}
+  #play {background:#385246;color:#fffaf0}
+  .commands input,.commands select {font:inherit;color:inherit;border:1px solid #bdc3b5;background:transparent;padding:4px}
+  #seed {width:10ch}
+  nav small {padding-left:4px;font-variant-numeric:tabular-nums}
+  #sim-note {color:#924824}
+  footer span:last-child {display:flex;gap:18px}
   @media(max-width:620px) {header {gap:10px; padding-block:12px} nav {gap:2px} button {padding:7px} footer {font-size:12px; gap:6px}}
 </style>
 <script type="importmap">
@@ -33,19 +43,27 @@
   <div><p>尼泊尔 · 奇特旺</p><h1>拉普蒂河漫滩</h1></div>
   <nav aria-label="观察位置">
     <button disabled data-view="habitat" aria-pressed="true">全景</button>
-    <button disabled data-view="chital" aria-pressed="false">花鹿</button>
-    <button disabled data-view="tiger" aria-pressed="false">孟加拉虎</button>
-    <button disabled data-view="mugger" aria-pressed="false">沼泽鳄</button>
+    <button disabled data-view="chital" aria-label="花鹿" aria-pressed="false">花鹿<small></small></button>
+    <button disabled data-view="tiger" aria-label="孟加拉虎" aria-pressed="false">孟加拉虎<small></small></button>
+    <button disabled data-view="mugger" aria-label="沼泽鳄" aria-pressed="false">沼泽鳄<small></small></button>
   </nav>
 </header>
 <main id="viewport">
   <img src="previews/rapti-floodplain.jpg" alt="河道穿过草地，两头花鹿和一头孟加拉虎位于远岸，沼泽鳄伏在近岸浅水中。">
+  <p id="individual" hidden></p>
   <p role="status" id="status">正在打开三维场景…</p>
 </main>
-<footer><span>拖动环看 · 滚轮或双指缩放 · 点地面移至该处 · Home 归位</span><a href="https://github.com/dragon717/SimulationWorld/blob/main/SOURCES.md">参考来源</a></footer>
+<section id="simulation" aria-label="生态演化" hidden>
+  <div class="commands"><button id="play" disabled>开始演化</button><button id="step" disabled>单步</button>
+    <label>速度 <select id="speed"><option value="1">1×</option><option value="5">5×</option><option value="20">20×</option></select></label>
+    <label>种子 <input id="seed" inputmode="numeric" maxlength="20"></label><button id="reset" disabled>按种子重置</button></div>
+  <div class="readings"><span>第 <b id="tick">0</b> 步</span><span id="climate"></span><span id="remains"></span><span id="event"></span></div>
+  <span role="status" id="sim-note"></span>
+</section>
+<footer><span>拖动环看 · 滚轮或双指缩放 · 点地面移至该处 · Home 归位</span><span><a id="mode" href="?view=habitat">查看原始场景</a><a href="https://github.com/dragon717/SimulationWorld/blob/main/SOURCES.md">参考来源</a></span></footer>
 <script type="module">
   import('./viewer.js').then(m => m.openHabitat()).catch(error => {
-    document.querySelector('#status').textContent='当前显示场景渲染图。三维预览需要本地依赖和 WebGL 2。';
+    document.querySelector('#status').textContent='场景未能打开。请用启动游戏脚本重启服务，并检查浏览器是否支持 WebGL 2。';
     console.error(error);
   });
 </script>

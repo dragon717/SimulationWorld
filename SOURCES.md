@@ -14,7 +14,7 @@
 
 ## 两个项目各提供了什么
 
-- **HryYyR/SimulationWorld**　核对版本 `d663d08b13237c4cc53c3a8ba36468cf6aa30f01`。生态设计定义“草 → 鹿 → 虎”；实际物种配置还有鳄，鹿的禁行地形和鳄的允许地形都指向河流。世界生成支持弯曲河道。三维资产采用同一组动物和水陆关系，网格、贴图及展示程序均在本仓库制作。[生态设计](https://github.com/HryYyR/SimulationWorld/blob/d663d08b13237c4cc53c3a8ba36468cf6aa30f01/SimulationWorld.md) · [物种配置](https://github.com/HryYyR/SimulationWorld/blob/d663d08b13237c4cc53c3a8ba36468cf6aa30f01/cfg/species.json) · [地形生成](https://github.com/HryYyR/SimulationWorld/blob/d663d08b13237c4cc53c3a8ba36468cf6aa30f01/internal/world/world.go)
+- **HryYyR/SimulationWorld**　核对版本 `d663d08b13237c4cc53c3a8ba36468cf6aa30f01`。生态设计定义“草 → 鹿 → 虎”；实际物种配置还有鳄，鹿的禁行地形和鳄的允许地形都指向河流。世界生成支持弯曲河道。实时模式直接编译该提交的 Go 服务，使用其物种配置、世界生成和演化快照。三维动物模型、贴图与展示程序在本仓库制作。[生态设计](https://github.com/HryYyR/SimulationWorld/blob/d663d08b13237c4cc53c3a8ba36468cf6aa30f01/SimulationWorld.md) · [物种配置](https://github.com/HryYyR/SimulationWorld/blob/d663d08b13237c4cc53c3a8ba36468cf6aa30f01/cfg/species.json) · [地形生成](https://github.com/HryYyR/SimulationWorld/blob/d663d08b13237c4cc53c3a8ba36468cf6aa30f01/internal/world/world.go)
 - **《万物有应》**　本地核对 `297897d4b36d42429503e81f3ef5146ab58d2869` 的 `docs/美术资产.md`「入山」、`models/valley.py` 和客户端山谷视图。沿用青绿矿物设色、实体部件、分层植被、贴图随源码保存、Blender → GLB → Three.js，以及直接点选所见地表的做法。本作的娑罗树、河床和动物均按奇特旺另建。[项目仓库（访问权限随原项目）](https://github.com/dragon717/wanwuyouying)
 
 ## 材质与预览的制作来源
