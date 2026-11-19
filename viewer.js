@@ -233,8 +233,8 @@ export async function openHabitat() {
     board = monitor();
     connectSimulation(
       initial,
-      (state, interval) => {
-        live.update(state, interval);
+      (state, interval, continuous) => {
+        live.update(state, interval, continuous);
         if (!prior || state.seed !== prior.seed || state.tick <= prior.tick) light.invalidate();
         Object.assign(live.river.mesh.material.uniforms, light.reflection);
         receiveDaylight(live.river.mesh.material, light.cloud);

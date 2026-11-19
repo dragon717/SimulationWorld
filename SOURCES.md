@@ -34,7 +34,7 @@
 - **虎舔水**　岸边停步时，虎屈低前躯，吻端靠近水面，近景模型的舌和下颌交替伸收。Reis 等人的实验补充材料包含虎的高速摄影。本文只据此设计动作顺序，模型中的频率为表现参数。[Science 论文](https://pubmed.ncbi.nlm.nih.gov/21071630/) · [含虎拍摄说明的实验补充材料](https://www.epfl.ch/labs/flexlab/wp-content/uploads/2017/12/27_2010_Reis_Science_sm.pdf)
 - **沼泽鳄游动与进食**　水中移动时，四肢靠近体侧，侧向弯曲沿躯干传向尾尖，尾部幅度较大。陆地移动时四肢展开交替迈动，成功取食时下颌开合。游姿参考鳄类运动资料和其他鳄属物种的实测，属于鳄类共有运动方式的近似。[IUCN 鳄类专家组](https://www.iucncsg.org/pages/Locomotion.html) · [Davenport 与 Sayer 的鳄属游动观察](https://www.thebhs.org/publications/the-herpetological-journal/volume-1-number-8-december-1989/1206-06-observations-on-the-aquatic-locomotion-of-young-salt-water-crocodiles-crocodylus-porosus-schneider/file)
 
-饮水是岸边表现动作，上游没有口渴值或饮水事件。动画只消费位置、水量、能量和事件，模拟中的生死、能量及水量仍由上游决定。姿态由上述参考和原有模型手工编写。
+饮水是岸边表现动作，上游没有口渴值或饮水事件。动画只消费位置、水量、能量和事件，模拟中的生死、能量及水量仍由上游决定。姿态由上述参考和原有模型手工编写。客户端步态把一个周期分为支撑和摆动：支撑时足掌相对躯干后移以抵消前进距离，摆动时抬脚前送。约 60% 的支撑占比是本作的动作调校值。
 
 ## 玻璃生态博物馆的界面美术
 

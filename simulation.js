@@ -49,10 +49,10 @@ export function connectSimulation(initial, apply, freeze) {
     playing = false,
     writing = false,
     poll = null;
-  function display(s, interval = 0) {
+  function display(s, interval = 0, continuous = false) {
     if (current && s.seed === current.seed && s.tick === current.tick && s.state_hash === current.state_hash)
       return;
-    apply(s, interval);
+    apply(s, interval, continuous);
     if (!current || current.seed !== s.seed) seed.value = s.seed;
     current = s;
     const counts = { deer: 0, tiger: 0, crocodile: 0 };
@@ -112,9 +112,18 @@ export function connectSimulation(initial, apply, freeze) {
       buttons();
     }
   }
-  async function advanceOnce(path, interval = 0) {
+  let held = null;
+  async function advanceOnce(path, interval = 0, continuous = false) {
     buttons();
-    display(await snapshot(path), interval);
+    const state = path === 'step' && held ? held : await snapshot(path);
+    // A pause may land while the server is finishing this step. Present it once on resume.
+    if (continuous && !playing) {
+      held = state;
+      return;
+    }
+    held = null;
+    display(state, interval, continuous);
+    if (continuous && playing) updates?.postMessage(interval);
   }
   let wake;
   speed.addEventListener('change', () => wake?.());
@@ -125,7 +134,7 @@ export function connectSimulation(initial, apply, freeze) {
       while (playing && !document.hidden) {
         const period = 1000 / Number(speed.value),
           begin = performance.now();
-        await advanceOnce('step', period);
+        await advanceOnce('step', period, true);
         const remaining = period - (performance.now() - begin);
         if (playing && remaining > 0)
           await new Promise((resolve) => {
@@ -167,11 +176,13 @@ export function connectSimulation(initial, apply, freeze) {
     }
   });
   // Read-only tabs follow the same server world; merely opening them never adds a second clock.
-  setInterval(() => {
+  function observe(period = 0) {
     if (writing || poll || document.hidden) return;
     poll = snapshot()
       .then((s) => {
-        display(s);
+        if (held && s.seed === held.seed && s.tick === held.tick && s.state_hash === held.state_hash) return;
+        held = null;
+        display(s, period, period > 0);
         if (note.dataset.offline) {
           note.textContent = '';
           delete note.dataset.offline;
@@ -184,7 +195,17 @@ export function connectSimulation(initial, apply, freeze) {
       .finally(() => {
         poll = null;
       });
-  }, 1500);
+  }
+  const updates = typeof BroadcastChannel === 'function' ? new BroadcastChannel('rapti-ecosim-ticks') : null;
+  let observedPeriod = 0;
+  if (updates)
+    updates.onmessage = ({ data }) => {
+      if ([50, 200, 1000].includes(data)) {
+        observedPeriod = data;
+        observe(data);
+      }
+    };
+  setInterval(() => observe(observedPeriod), 1500);
   display(initial);
   buttons();
   if (!document.hidden) autoplay();

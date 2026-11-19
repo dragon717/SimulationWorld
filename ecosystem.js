@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { groundRelief, receiveDaylight } from './lighting.js';
 import { breeze, bendGrass } from './environment.js';
 import { waterSurface } from './river.js';
-import { activity, channels, animateMaterial } from './motion.js';
+import { activity, channels, animateMaterial, samplePlaybackPose } from './motion.js';
 
 const speciesViews = { deer: 'chital', tiger: 'tiger', crocodile: 'mugger' };
 const names = { 'Axis axis': 'chital', 'Panthera tigris tigris': 'tiger', 'Crocodylus palustris': 'mugger' };
@@ -423,8 +423,9 @@ export function createEcosystem(scene, library, soil) {
     landscape,
     last,
     started = 0,
-    duration = 0;
-  function update(s, interval = 800) {
+    duration = 0,
+    streaming = false;
+  function update(s, interval = 800, continuous = false, receivedAt = performance.now()) {
     freezeAt = null;
     if (s.animals.length > shadowCapacity) {
       if (shadows) {
@@ -448,6 +449,9 @@ export function createEcosystem(scene, library, soil) {
       landscape = createLandscape(scene, s, tree, soil);
       actors.clear();
     }
+    // Slight playout slack at 1× absorbs jitter without predicting another cell.
+    duration =
+      !reset && last && s.tick === last.tick + 1 ? interval * (continuous && interval === 1000 ? 1.14 : 1) : 0;
     landscape.update(s);
     const next = new Map();
     groups = {};
@@ -461,11 +465,19 @@ export function createEcosystem(scene, library, soil) {
       if (view === 'mugger' && s.water[a.y * s.width + a.x] >= 15) to.y -= 0.23 * size;
       const contiguous = old && !reset && s.tick === last.tick + 1;
       const act = activity(s, a, contiguous ? old : null, eats, last);
-      const heading = act.heading ?? old?.facing ?? a.id * 2.4;
-      const phase = old?.phase ?? a.id * 1.31;
-      const weights = old?.weights.slice() ?? [0, 0, 0, 0];
+      const previous = contiguous ? old : null;
+      const heading = act.heading ?? previous?.facing ?? a.id * 2.4;
+      const phase = previous?.phase ?? a.id * 1.31;
+      const weights = previous?.weights.slice() ?? [0, 0, 0, 0];
       if (view === 'tiger' && s.terrain[a.y * s.width + a.x] === 1 && s.water[a.y * s.width + a.x] >= 15)
         to.y -= 0.67 * size;
+      const from = previous?.position.clone() ?? to.clone();
+      const via = previous?.to ?? to;
+      const remaining = Math.hypot(via.x - from.x, via.z - from.z);
+      const stride = size * (act.name === 'swim' && view === 'mugger' ? 1.8 : view === 'mugger' ? 0.68 : 1.4);
+      const facing = previous?.facing ?? heading;
+      const angle = heading - facing;
+      const turn = Math.atan2(Math.sin(angle), Math.cos(angle));
       const actor = {
         action: act.name,
         normal: new THREE.Vector3(0, 1, 0),
@@ -475,17 +487,20 @@ export function createEcosystem(scene, library, soil) {
         cellX: a.x,
         cellY: a.y,
         heading,
-        facing: old?.facing ?? heading,
-        startFacing: old?.facing ?? heading,
+        facing,
+        startFacing: facing,
+        turn,
         startPhase: phase,
         phase,
-        cycles: act.distance
-          ? act.distance / (size * (view === 'mugger' ? 1.8 : 1.4))
-          : act.name === 'drink'
-            ? view === 'tiger'
-              ? 1.7
-              : 0.7
-            : 1,
+        remaining,
+        via,
+        edgeDistance: act.distance ?? 0,
+        stride,
+        previousStride: previous?.stride ?? stride,
+        previousSpeed: previous?.travelSpeed ?? 0,
+        travelSpeed: duration ? (remaining + (act.distance ?? 0)) / duration : 0,
+        restingCycles: act.name === 'drink' ? (view === 'tiger' ? 1.7 : 0.7) : act.name === 'feed' ? 1 : 0.32,
+        entryBrake: previous?.edgeDistance ? Math.min(1, 1 - Math.cos(turn)) : 1,
         weights,
         startWeights: weights.slice(),
         targetWeights: channels.map((name) => Number(name === act.name)),
@@ -495,8 +510,8 @@ export function createEcosystem(scene, library, soil) {
         energy: a.energy,
         age: a.age,
         to,
-        from: old && !reset && s.tick === last.tick + 1 ? old.position.clone() : to.clone(),
-        position: to.clone(),
+        from,
+        position: from.clone(),
       };
       next.set(a.id, actor);
       (groups[key] ??= []).push(actor);
@@ -533,8 +548,9 @@ export function createEcosystem(scene, library, soil) {
       scene.add(m);
       markers.push(m);
     }
-    started = performance.now();
-    duration = !reset && last && s.tick === last.tick + 1 ? interval : 0;
+    started = receivedAt;
+    streaming = continuous;
+
     last = s;
   }
   const frustum = new THREE.Frustum();
@@ -549,14 +565,18 @@ export function createEcosystem(scene, library, soil) {
     frustum.setFromProjectionMatrix(matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
     const t =
       reduceMotion || !duration ? 1 : THREE.MathUtils.clamp(((freezeAt ?? now) - started) / duration, 0, 1);
+    const settle =
+      streaming && !reduceMotion
+        ? 1 - THREE.MathUtils.smoothstep((freezeAt ?? now) - started - duration, 0, 160)
+        : 1;
     let shadowCount = 0;
-    const blend = t * t * (3 - 2 * t);
+
     for (const [kind, draw] of Object.entries(batches)) {
       const near = close[kind],
         distant = far[kind];
       near.length = distant.length = 0;
       for (const a of groups[kind] ?? []) {
-        a.position.lerpVectors(a.from, a.to, t);
+        samplePlaybackPose(a, t, duration, settle, reduceMotion);
         a.position.y = landscape.heightAt(a.position.x, a.position.z, a.normal);
         if (a.view === 'tiger' || a.view === 'mugger') {
           const level = landscape.river.levelAt(
@@ -590,11 +610,6 @@ export function createEcosystem(scene, library, soil) {
         }
         bounds.center.copy(a.position);
         if (!frustum.intersectsSphere(bounds)) continue;
-        const diff = a.heading - a.startFacing;
-        a.facing = a.startFacing + Math.atan2(Math.sin(diff), Math.cos(diff)) * blend;
-        a.phase = a.startPhase + (reduceMotion ? 0 : t) * a.cycles * 2 * Math.PI;
-        for (let k = 0; k < 4; k++)
-          a.weights[k] = a.startWeights[k] + (a.targetWeights[k] - a.startWeights[k]) * Math.min(1, blend * 3);
         if (a.action !== 'swim') {
           pose.position.copy(a.position);
           pose.position.y += 0.027;
@@ -619,8 +634,8 @@ export function createEcosystem(scene, library, soil) {
   return {
     update,
     frame,
-    freeze() {
-      freezeAt = performance.now();
+    freeze(now = performance.now()) {
+      freezeAt = now;
     },
     async addDetail(lib, renderer, camera) {
       const prepared = {},
