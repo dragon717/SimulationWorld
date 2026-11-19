@@ -22,7 +22,7 @@ export const hallReflection = `
     return textureCubeUV(hallRadiance,reflected,roughness).rgb*hallGain;
   }`;
 
-export function daylight(scene, width, depth, probe, live) {
+export function daylight(scene, width, depth, live) {
   const span = Math.max(width, depth);
   const sky = new THREE.HemisphereLight(0xc4dff3, 0x8e826c, 1.24);
   const key = new THREE.DirectionalLight(0xffdfb5, 3.1);
@@ -63,6 +63,13 @@ export function daylight(scene, width, depth, probe, live) {
   const vertical = windowDirection.clone().cross(right),
     snapped = new THREE.Vector3();
 
+  // A zero-initialized atlas of the final dimensions keeps the PBR shader variant stable at handoff.
+  const probe = new THREE.DataTexture(null, 336, 256, THREE.RGBAFormat, THREE.HalfFloatType);
+  probe.source.dataReady = false;
+  probe.flipY = true;
+  probe.colorSpace = THREE.LinearSRGBColorSpace;
+  probe.magFilter = THREE.LinearFilter;
+  probe.needsUpdate = true;
   probe.mapping = THREE.CubeUVReflectionMapping;
   probe.generateMipmaps = false;
   probe.minFilter = THREE.LinearFilter;
@@ -79,6 +86,8 @@ export function daylight(scene, width, depth, probe, live) {
   };
   const drift = new THREE.Vector4(0, 0, 0, 0);
   scene.userData.cloudShadow = drift;
+  let probeLoaded = false,
+    blend = 0;
   let cloud = 0,
     desired = 0;
   function apply() {
@@ -86,14 +95,23 @@ export function daylight(scene, width, depth, probe, live) {
     drift.w = 0.28 + 0.67 * cloud;
     sky.intensity = 1.2 + 0.58 * cloud;
     key.color.set(0xffdbac).lerp(overcast, cloud * 0.85);
-    scene.environmentIntensity = 0.38 + 0.16 * cloud;
-    reflection.hallGain.value = 0.52 + 0.14 * cloud;
+    scene.environmentIntensity = blend * (0.38 + 0.16 * cloud);
+    reflection.hallGain.value = blend * (0.52 + 0.14 * cloud);
   }
   const overcast = new THREE.Color(0xf0f3f4);
   apply();
   return {
     reflection,
     cloud: drift,
+    installProbe(pixels, renderer) {
+      if (!(pixels instanceof ArrayBuffer) || pixels.byteLength !== probe.image.width * probe.image.height * 8)
+        throw new Error('环境光图集尺寸不匹配');
+      probe.image.data = new Uint16Array(pixels);
+      probe.source.dataReady = true;
+      probe.needsUpdate = true;
+      renderer.initTexture(probe);
+      probeLoaded = true;
+    },
     weather(rain, immediate = false) {
       desired = THREE.MathUtils.smoothstep(rain, 0.6, 5.5);
       if (immediate) {
@@ -131,7 +149,12 @@ export function daylight(scene, width, depth, probe, live) {
         drift.x += travel * u.windDir.value.x;
         drift.y += travel * u.windDir.value.y;
       }
-      if (Math.abs(cloud - desired) < 0.0001) return;
+      const fading = probeLoaded && blend < 1;
+      if (fading) {
+        blend = reduced ? 1 : Math.min(1, blend + Math.min(0.1, Math.max(0, dt)) / 0.5);
+        if (blend === 1) performance.mark('habitat-environment-ready');
+      }
+      if (!fading && Math.abs(cloud - desired) < 0.0001) return;
       cloud = THREE.MathUtils.damp(cloud, desired, 1.6, Math.min(0.1, dt));
       apply();
     },
@@ -248,4 +271,46 @@ export function groundRelief(mat, detail) {
       );
   };
   return mat;
+}
+
+// The first render has already been submitted. Leave a paint opportunity before optional work starts.
+export function loadProbeAfterPaint(light, renderer) {
+  const idle = (callback) =>
+    window.requestIdleCallback
+      ? window.requestIdleCallback(callback, { timeout: 700 })
+      : window.setTimeout(callback, 0);
+  const warn = (error) => console.warn('环境反射未加载，展柜使用基础日光。', error);
+  requestAnimationFrame(() =>
+    idle(() => {
+      let worker;
+      try {
+        worker = new Worker('./probe-worker.js', { type: 'module' });
+        worker.onmessage = ({ data }) => {
+          worker.terminate();
+          if (data.error) {
+            warn(data.error);
+            return;
+          }
+          idle(() => {
+            try {
+              performance.mark('habitat-environment-upload-start');
+              light.installProbe(data.pixels, renderer);
+              performance.mark('habitat-environment-uploaded');
+            } catch (error) {
+              warn(error);
+            }
+          });
+        };
+        worker.onerror = (event) => {
+          event.preventDefault();
+          worker.terminate();
+          warn(event.message);
+        };
+        worker.postMessage(null);
+      } catch (error) {
+        worker?.terminate();
+        warn(error);
+      }
+    }),
+  );
 }

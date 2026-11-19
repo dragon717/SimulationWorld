@@ -2,8 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { createEcosystem } from './ecosystem.js';
-import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
-import { daylight, caseGlass, groundRelief, receiveDaylight } from './lighting.js';
+import { daylight, caseGlass, groundRelief, receiveDaylight, loadProbeAfterPaint } from './lighting.js';
 import { monitor } from './monitor.js';
 import { animateOriginal } from './environment.js';
 import { actionNames } from './motion.js';
@@ -17,7 +16,6 @@ export async function openHabitat() {
   const loading = Promise.all([
     loader.loadAsync(simulated ? './assets/habitat-map.glb' : './assets/rapti-floodplain.glb'),
     simulated ? snapshot() : null,
-    new HDRLoader().loadAsync('./textures/hall-prefiltered.hdr'),
     new THREE.TextureLoader().loadAsync('./textures/floodplain-ground.webp'),
   ]);
   const renderer = new THREE.WebGLRenderer({
@@ -33,10 +31,10 @@ export async function openHabitat() {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   const scene = new THREE.Scene();
   renderer.setClearColor(0x101c20, 0);
-  const [gltf, initial, probe, soil] = await loading;
+  const [gltf, initial, soil] = await loading;
   soil.wrapS = soil.wrapT = THREE.RepeatWrapping;
   soil.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
-  const light = daylight(scene, initial?.width ?? 20, initial?.height ?? 15, probe, simulated);
+  const light = daylight(scene, initial?.width ?? 20, initial?.height ?? 15, simulated);
   const live = simulated ? createEcosystem(scene, gltf.scene, soil) : null;
   if (!live) {
     scene.add(gltf.scene);
@@ -320,6 +318,7 @@ export async function openHabitat() {
   const windLabel = document.querySelector('#wind-reading');
   let nextWindLabel = 0;
   let last = performance.now();
+  let firstFrame = true;
   renderer.setAnimationLoop((now) => {
     if (document.hidden) {
       last = now;
@@ -376,5 +375,10 @@ export async function openHabitat() {
     seams.material.opacity = 0.36 * glassVisibility;
     light.focus(camera, controls.target);
     renderer.render(scene, camera);
+    if (firstFrame) {
+      firstFrame = false;
+      performance.mark('habitat-first-render');
+      loadProbeAfterPaint(light, renderer);
+    }
   });
 }

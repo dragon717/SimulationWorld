@@ -80,8 +80,9 @@ function stats(values) {
             gl.endQuery(ext.TIME_ELAPSED_EXT);
             queued.push(q);
           }
-          if (!sample.first) {
-            sample.first = end;
+          const firstDraw = !sample.first && performance.getEntriesByName('habitat-first-render')[0];
+          if (firstDraw) {
+            sample.first = firstDraw.startTime;
             firstFence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
             gl.flush();
           }
@@ -105,6 +106,11 @@ function stats(values) {
     await page.locator('#speed').selectOption(process.env.SPEED || '5');
     if (process.env.FOCUS) await page.locator('[data-view="' + process.env.FOCUS + '"]').click();
     await page.waitForTimeout(900);
+    await page.waitForFunction(
+      () => performance.getEntriesByName('habitat-environment-ready').length === 1,
+      null,
+      { timeout: 30000 },
+    );
     const startTick = await page.locator('#tick').textContent();
     let gesture = 0;
     await page.evaluate(() => (window.bench.active = true));
@@ -139,7 +145,21 @@ function stats(values) {
       coldFirstSubmit: b.first,
       coldFirstGPUObserved: b.firstGPU,
     };
-    result.finalView=await page.locator('[data-view][aria-pressed=true]').getAttribute('data-view',{timeout:250}).catch(()=> 'free');
+    result.finalView = await page
+      .locator('[data-view][aria-pressed=true]')
+      .getAttribute('data-view', { timeout: 250 })
+      .catch(() => 'free');
+    result.environment = await page.evaluate(() => {
+      const at = (name) => performance.getEntriesByName(name)[0]?.startTime;
+      const uploaded = at('habitat-environment-uploaded');
+      const start = at('habitat-environment-upload-start');
+      return {
+        firstFrame: at('habitat-first-render'),
+        uploaded,
+        ready: at('habitat-environment-ready'),
+        uploadTask: uploaded != null && start != null ? +(uploaded - start).toFixed(2) : null,
+      };
+    });
     result.over16ms = b.interval.filter((v) => v > 16.7).length;
     result.gpuUnder2Pct = b.gpu.length
       ? +((100 * b.gpu.filter((v) => v < 2).length) / b.gpu.length).toFixed(1)

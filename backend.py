@@ -19,7 +19,7 @@ def prepare():
     if not (ROOT / "node_modules/three/build/three.module.js").is_file():
         subprocess.run(["npm.cmd" if os.name == "nt" else "npm", "ci"], cwd=ROOT, check=True)
     SITE.mkdir(parents=True, exist_ok=True)
-    for name in ("index.html", "viewer.js", "ecosystem.js", "simulation.js", "motion.js", "monitor.js", "snapshot-worker.js", "environment.js", "river.js", "lighting.js", "museum.css", "ui", "assets", "previews", "textures", "node_modules/three"):
+    for name in ("index.html", "viewer.js", "ecosystem.js", "simulation.js", "motion.js", "monitor.js", "snapshot-worker.js", "probe-worker.js", "environment.js", "river.js", "lighting.js", "museum.css", "ui", "assets", "previews", "textures", "node_modules/three"):
         source, target = ROOT / name, SITE / name
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.is_symlink():

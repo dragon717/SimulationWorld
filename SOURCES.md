@@ -57,5 +57,5 @@
 
 ### 光照资产来源
 
-- [展厅 HDR 环境探针](textures/hall-prefiltered.hdr) 来自 Poly Haven 的 *Events Hall Interior*，摄影 Dimitrios Savva，处理 Jarod Guest，CC0。原始 1K Radiance HDR 缩为 256 × 128，经 Three.js 的 PMREMGenerator 离线生成 336 × 256 的多粗糙度 CubeUV 图集，保留线性高动态范围，按主要窗光方向旋转。它给玻璃、水面和精细模型提供室内采光参考。画面中可见的展厅背景仍是本项目的生图展厅。[资产页](https://polyhaven.com/a/events_hall_interior) · [Poly Haven 授权](https://polyhaven.com/license)
+- [展厅 HDR 环境探针](textures/hall-prefiltered.hdr) 来自 Poly Haven 的 *Events Hall Interior*，摄影 Dimitrios Savva，处理 Jarod Guest，CC0。原始 1K Radiance HDR 缩为 256 × 128，经 Three.js 的 PMREMGenerator 离线生成 336 × 256 的多粗糙度 CubeUV 图集，保留线性高动态范围，按主要窗光方向旋转。运行时分发同一图集的 gzip 压缩半精度像素，首帧之后再由后台线程解压。它给玻璃、水面和精细模型提供室内采光参考。画面中可见的展厅背景仍是本项目的生图展厅。[资产页](https://polyhaven.com/a/events_hall_interior) · [Poly Haven 授权](https://polyhaven.com/license)
 - [河岸地表细节](textures/floodplain-ground.webp) 来自 Amal Kumar 的 *Sparse Grass*，CC0。取其漫反射图的相对亮度、OpenGL 法线 XY 分量与植被遮罩，打包为 384 × 384 无损 WebP。近景用约两米幅宽显示土粒与草根的受光，实际草量、水量和泥滩范围由生态快照决定。[资产页](https://polyhaven.com/a/sparse_grass)
