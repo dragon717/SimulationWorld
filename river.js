@@ -1,5 +1,6 @@
 // Linear shallow-water surface on the visible channel. Distances are in scene metres.
 import * as THREE from 'three';
+import { hallReflection, receiveDaylight } from './lighting.js';
 
 export class WaveField {
   constructor(points, faces, owners) {
@@ -144,7 +145,7 @@ export class WaveField {
   }
 }
 
-export function waterSurface(xs, zs, pointAt, ownerAt, water, wind) {
+export function waterSurface(xs, zs, pointAt, ownerAt, water, wind, bedAt) {
   const vertices = [],
     indices = [],
     owners = [],
@@ -174,6 +175,10 @@ export function waterSurface(xs, zs, pointAt, ownerAt, water, wind) {
     positions = new THREE.BufferAttribute(base.slice(), 3);
   positions.setUsage(THREE.DynamicDrawUsage);
   geo.setAttribute('position', positions);
+  const bed = new Float32Array(base.length / 3);
+  for (let i = 0; i < bed.length; i++)
+    bed[i] = bedAt ? bedAt(base[i * 3], base[i * 3 + 2]) : base[3 * i + 1] - 0.32;
+  geo.setAttribute('riverBed', new THREE.BufferAttribute(bed, 1));
   const motion = new THREE.BufferAttribute(new Float32Array((2 * base.length) / 3), 2);
   motion.setUsage(THREE.DynamicDrawUsage);
   geo.setAttribute('wave', motion);
@@ -211,44 +216,79 @@ export function waterSurface(xs, zs, pointAt, ownerAt, water, wind) {
       }
     slope.needsUpdate = true;
   }
-  const uniforms = { ...wind.uniforms, blend: { value: 1 }, rippleScale: { value: 0 } };
+  const uniforms = {
+    ...THREE.UniformsUtils.clone(THREE.UniformsLib.lights),
+    hallRadiance: { value: null },
+    hallAtlas: { value: new THREE.Vector3(1 / 336, 1 / 256, 6) },
+    hallGain: { value: 0 },
+    hallYaw: { value: 0 },
+    ...wind.uniforms,
+    blend: { value: 1 },
+    rippleScale: { value: 0 },
+  };
   const mat = new THREE.ShaderMaterial({
     uniforms,
+    lights: true,
     transparent: true,
     depthWrite: true,
     vertexShader: `
-      attribute vec2 wave,slope; varying vec2 vSlope;uniform float blend; varying vec3 vWorld;varying float vDepth;
+      #include <common>
+      #include <shadowmap_pars_vertex>
+      attribute float riverBed;attribute vec2 wave,slope; varying vec2 vSlope;uniform float blend; varying vec3 vWorld;varying float vDepth;
       void main(){
         vec3 pos=position;
-        pos.y+=wave.x*(1.-blend); vDepth=wave.y;vSlope=slope;
-        vWorld=(modelMatrix*vec4(pos,1.)).xyz;
-        gl_Position=projectionMatrix*viewMatrix*vec4(vWorld,1.);
+        pos.y+=wave.x*(1.-blend); vDepth=smoothstep(.004,.245,pos.y-riverBed)*wave.y;vSlope=slope;
+        vec4 worldPosition=modelMatrix*vec4(pos,1.);
+        vWorld=worldPosition.xyz;
+        vec3 transformedNormal=normalize(normalMatrix*vec3(slope.x,1.,slope.y));
+        #include <shadowmap_vertex>
+        gl_Position=projectionMatrix*viewMatrix*worldPosition;
       }`,
     fragmentShader: `
+      #include <common>
+      #include <packing>
+      #include <bsdfs>
+      #include <lights_pars_begin>
+      #include <shadowmap_pars_fragment>
+      #include <shadowmask_pars_fragment>
+      ${hallReflection}
       varying vec3 vWorld;varying float vDepth;varying vec2 vSlope;
       uniform vec2 windDir;uniform float windTime,windGust,rippleScale;
       void main(){
         vec2 d=windDir,across=vec2(-d.y,d.x),p=vWorld.xz;
         float s=dot(p,d),l=dot(p,across);
-        float a=s*13.+1.14*sin(l*3.2+s*.72+windTime*.6)+.75*sin(l*4.9+s*1.3)-windTime*4.1;
+        float a=s*14.+1.43*sin(l*3.2+s*.72+windTime*.6)+1.15*sin(l*5.1+s*1.37)-windTime*4.1;
         float b=s*17.+l*4.-windTime*5.6;
         vec3 n=normalize(vec3(vSlope.x,1.,vSlope.y));
         n.xz+=(d*.049*cos(a)+(d*.022+across*.014)*cos(b))*rippleScale*windGust;
+        float chop=l*19.-s*7.+sin(s*5.2+l*2.1)-windTime*3.7;
+        n.xz+=across*.034*cos(chop)*rippleScale*windGust/(1.+fwidth(chop));
         n=normalize(n);
         vec3 eye=normalize(cameraPosition-vWorld);
-        vec3 light=normalize(vec3(-.43,.82,.43));
-        float fres=pow(1.-max(dot(n,eye),0.),3.);
-        float ridge=smoothstep(.86,.997,sin(a+.3*sin(b)))*smoothstep(.05,.72,sin(l*5.1+s)*sin(s*1.5-l*2.));
-        vec3 color=mix(vec3(.15,.36,.29),vec3(.042,.226,.218),vDepth);
-        color+=fres*vec3(.32,.32,.23);
-        color+=(.09*ridge*rippleScale*windGust+.32*pow(max(dot(n,normalize(eye+light)),0.),64.))*vec3(.85,.91,.76);
-        gl_FragColor=vec4(color,.78+.13*vDepth);
+        float fres=.0204+.9796*pow(1.-clamp(dot(n,eye),0.,1.),5.);
+        vec3 water=mix(vec3(.171,.235,.148),vec3(.030,.143,.131),vDepth);
+        vec3 indirect=vec3(.32);
+        #if NUM_HEMI_LIGHTS > 0
+          indirect=hemisphereLights[0].skyColor*.48;
+        #endif
+        vec3 direct=vec3(0.);
+        #if NUM_DIR_LIGHTS > 0
+          vec3 light=inverseTransformDirection(directionalLights[0].direction,viewMatrix);
+          float ndl=max(0.,dot(n,light));
+          float glint=pow(max(0.,dot(n,normalize(eye+light))),560.);
+          direct=directionalLights[0].color*getShadowMask()*(water*ndl*.40+vec3(glint*.45));
+        #endif
+        vec3 reflection=hall(reflect(-eye,n),.24+.045*windGust);
+        reflection=reflection/(1.+reflection/2.4);
+        vec3 color=mix(water*indirect+direct,reflection,fres);
+        gl_FragColor=vec4(color,mix(.36,.89,vDepth)+fres*.08);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }`,
   });
-  const mesh = new THREE.Mesh(geo, mat);
+  const mesh = new THREE.Mesh(geo, receiveDaylight(mat));
   mesh.name = '活动水面';
+  mesh.receiveShadow = true;
   const cells = Uint32Array.from(new Set(owners));
   let mask,
     levels,

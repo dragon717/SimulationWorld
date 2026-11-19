@@ -90,7 +90,12 @@ void animalPose(inout vec3 p,inout vec3 n) {
   #endif
 }`.replace('#include <common>', '#include <common>\n#define ANIMAL ' + kind),
       )
-      .replace('#include <begin_vertex>', 'vec3 transformed=posePoint;')
+      .replace(
+        '#include <begin_vertex>',
+        material.isMeshDepthMaterial
+          ? 'vec3 transformed=position, depthNormal=normal; animalPose(transformed,depthNormal);'
+          : 'vec3 transformed=posePoint;',
+      )
       .replace(
         '#include <beginnormal_vertex>',
         '#include <beginnormal_vertex>\nvec3 posePoint=position; animalPose(posePoint,objectNormal);',

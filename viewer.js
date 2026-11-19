@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { createEcosystem } from './ecosystem.js';
+import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
+import { daylight, caseGlass, groundRelief, receiveDaylight } from './lighting.js';
 import { monitor } from './monitor.js';
 import { animateOriginal } from './environment.js';
 import { actionNames } from './motion.js';
@@ -15,6 +17,8 @@ export async function openHabitat() {
   const loading = Promise.all([
     loader.loadAsync(simulated ? './assets/habitat-map.glb' : './assets/rapti-floodplain.glb'),
     simulated ? snapshot() : null,
+    new HDRLoader().loadAsync('./textures/hall-prefiltered.hdr'),
+    new THREE.TextureLoader().loadAsync('./textures/floodplain-ground.webp'),
   ]);
   const renderer = new THREE.WebGLRenderer({
     alpha: true,
@@ -23,32 +27,46 @@ export async function openHabitat() {
   });
   renderer.setPixelRatio(Math.min(devicePixelRatio, simulated ? 1.25 : 2));
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.autoUpdate = !simulated;
+  renderer.shadowMap.autoUpdate = true;
   renderer.shadowMap.needsUpdate = true;
-  renderer.shadowMap.type = simulated ? THREE.BasicShadowMap : THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   const scene = new THREE.Scene();
   renderer.setClearColor(0x101c20, 0);
-  scene.add(new THREE.HemisphereLight(0xfff7e4, 0xb4b59e, 2.0));
-  const [gltf, initial] = await loading;
-  const live = simulated ? createEcosystem(scene, gltf.scene) : null;
-  if (!live) scene.add(gltf.scene);
-  const original = live ? null : animateOriginal(gltf.scene);
-  const key = new THREE.DirectionalLight(0xffedd0, 2.8);
-  key.position.set(-9, 17, 10);
-  if (live) key.position.multiplyScalar(7);
-  key.castShadow = true;
-  Object.assign(key.shadow.camera, { left: -13, right: 13, top: 13, bottom: -13, near: 1, far: 45 });
-  if (live) {
-    const span = Math.max(initial.width, initial.height) * 0.8;
-    Object.assign(key.shadow.camera, { left: -span, right: span, top: span, bottom: -span, far: 350 });
+  const [gltf, initial, probe, soil] = await loading;
+  soil.wrapS = soil.wrapT = THREE.RepeatWrapping;
+  soil.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+  const light = daylight(scene, initial?.width ?? 20, initial?.height ?? 15, probe, simulated);
+  const live = simulated ? createEcosystem(scene, gltf.scene, soil) : null;
+  if (!live) {
+    scene.add(gltf.scene);
+    gltf.scene.traverse((root) => {
+      if (root.userData.scientificName !== 'Crocodylus palustris') return;
+      const wet = new Map();
+      root.traverse((part) => {
+        if (!part.isMesh) return;
+        if (!wet.has(part.material)) {
+          const scales = part.material.clone();
+          scales.roughness = Math.min(scales.roughness, 0.52);
+          wet.set(part.material, scales);
+        }
+        part.material = wet.get(part.material);
+      });
+    });
+    const floor = gltf.scene.getObjectByName('Floodplain_ground_and_riverbed');
+    floor.material = groundRelief(floor.material.clone(), soil);
   }
-  key.shadow.camera.updateProjectionMatrix();
-  key.shadow.mapSize.set(live ? 1024 : 2048, live ? 1024 : 2048);
-  key.shadow.normalBias = 0.012;
-  scene.add(key);
+  const original = live ? null : animateOriginal(gltf.scene);
+  if (original) {
+    Object.assign(original.river.mesh.material.uniforms, light.reflection);
+    receiveDaylight(original.river.mesh.material, light.cloud);
+  }
   gltf.scene.traverse((node) => {
-    if (node.isMesh) node.castShadow = node.receiveShadow = true;
+    if (node.isMesh) {
+      node.castShadow = node !== original?.river.mesh;
+      node.receiveShadow = true;
+      if (original && node.material.isMeshStandardMaterial) receiveDaylight(node.material, light.cloud);
+    }
   });
   const w = live ? initial.width + 2 : 19.1,
     d = live ? initial.height + 2 : 13.7;
@@ -67,16 +85,7 @@ export async function openHabitat() {
   stand.castShadow = stand.receiveShadow = true;
   scene.add(stand);
   const enclosure = new THREE.BoxGeometry(w, caseHeight, d);
-  const glass = new THREE.Mesh(
-    enclosure,
-    new THREE.MeshBasicMaterial({
-      color: 0xa1dddf,
-      transparent: true,
-      opacity: 0.035,
-      depthWrite: false,
-      side: THREE.FrontSide,
-    }),
-  );
+  const glass = new THREE.Mesh(enclosure, caseGlass(light.reflection));
   const seams = new THREE.LineSegments(
     new THREE.EdgesGeometry(enclosure),
     new THREE.LineBasicMaterial({ color: 0xb6e4e2, transparent: true, opacity: 0.36, depthWrite: false }),
@@ -88,6 +97,8 @@ export async function openHabitat() {
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(440, 440), new THREE.ShadowMaterial({ opacity: 0.26 }));
   floor.rotation.x = -Math.PI / 2;
   floor.position.y = seat - w * 0.029 - standHeight - 0.008;
+  floor.material = receiveDaylight(floor.material);
+  plinth.material = receiveDaylight(plinth.material);
   floor.receiveShadow = true;
   scene.add(floor);
   const camera = new THREE.PerspectiveCamera(34, 1, 0.04, live ? 1600 : 250);
@@ -226,6 +237,10 @@ export async function openHabitat() {
       initial,
       (state, interval) => {
         live.update(state, interval);
+        if (!prior || state.seed !== prior.seed || state.tick <= prior.tick) light.invalidate();
+        Object.assign(live.river.mesh.material.uniforms, light.reflection);
+        receiveDaylight(live.river.mesh.material, light.cloud);
+        light.weather(state.rainfall, !prior || state.seed !== prior.seed || state.tick < prior.tick);
         const now = performance.now();
         if (!prior || now - lastMonitor >= 100 || interval === 0 || state.tick <= prior.tick) {
           clearTimeout(monitorTimer);
@@ -242,7 +257,6 @@ export async function openHabitat() {
             100 - (now - lastMonitor),
           );
         }
-        if (!prior || state.seed !== prior.seed || state.tick <= prior.tick) renderer.shadowMap.needsUpdate = true;
         if (prior && (state.seed !== prior.seed || state.tick < prior.tick)) choose(home);
         prior = state;
       },
@@ -311,6 +325,7 @@ export async function openHabitat() {
       last = now;
       return;
     }
+    light.frame((now - last) / 1000, live?.wind ?? original?.wind, watcher.matches);
     original?.frame(Math.max(0, (now - last) / 1000), watcher.matches);
     if (!watcher.matches) mixer.update(Math.min((now - last) / 1000, 0.08));
     last = now;
@@ -357,8 +372,9 @@ export async function openHabitat() {
     const displayDistance = camera.position.distanceTo(controls.target) / w;
     const glassVisibility = THREE.MathUtils.smoothstep(displayDistance, 0.5, 1.25);
     glass.visible = seams.visible = glassVisibility > 0;
-    glass.material.opacity = 0.034 * glassVisibility;
+    glass.material.uniforms.caseFade.value = glassVisibility;
     seams.material.opacity = 0.36 * glassVisibility;
+    light.focus(camera, controls.target);
     renderer.render(scene, camera);
   });
 }

@@ -100,6 +100,11 @@ export function animateOriginal(root) {
     for (let i = 0; i < p.count; i++) rise[i] = Math.max(0, p.getY(i) - height(p.getX(i), p.getZ(i)));
     mesh.geometry.setAttribute('bladeRise', new THREE.BufferAttribute(rise, 1));
     mesh.material = bendGrass(mesh.material, wind, false);
+    mesh.customDepthMaterial = bendGrass(
+      new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, side: THREE.DoubleSide }),
+      wind,
+      false,
+    );
   });
   const old = root.getObjectByName('Jade_channel'),
     p = old.geometry.attributes.position,
@@ -124,6 +129,7 @@ export function animateOriginal(root) {
     () => 0,
     [100],
     wind,
+    height,
   );
   old.visible = false;
   const glints = root.getObjectByName('Fine_surface_currents');

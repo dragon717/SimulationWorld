@@ -47,3 +47,15 @@
 ## 风、草与水
 
 草根固定在地面，草叶和穗头按离地高度弯折。同一组风向和阵风强度给水面施加扰动。水面高度和速度使用带阻尼的二维线性浅水波近似，水深影响传播速度，湿三角形之间交换等量反向通量，干涸区域退出计算。动物尾迹、雨点和点击都向这一水面施加局部冲量。河流的水量与干湿判定仍读取上游状态。波速与水深关系参考 [Clawpack 浅水方程文档](https://www.clawpack.org/riemann_book/html/Shallow_water_approximate.html)。
+
+## 展柜日光与材质采光
+
+- **先用一盏主光交代方向。** 河漫滩采用固定的左上侧光，光源在全景相机左侧略偏后，仰角约 40°。这个角度给树干、鹿腿和鳄背盾鳞留出明暗两面。ERCO 的展陈指南讨论了侧向重点照明如何塑造体积，以及偏暖的重点光配合偏冷的基础照明。本作的角度和强度按展柜镜头调校。[ERCO：用光影塑造立体展品](https://www.erco.com/en/knowledge/culture/white-cube/sculpture-lighting/)
+- **再给暗部留细节。** 冷色天空与较暗的暖色地面提供半球补光，正面一层弱反射光保留眼睛和吻部。降雨增强时，侧光平滑减弱、天空补光增加；随风移动的云影作为直射光透过率的艺术近似。颜色在线性空间参与光照，最终经 ACES 色调映射输出。[Three.js 半球光](https://threejs.org/docs/pages/HemisphereLight.html) · [Three.js 色彩管理](https://threejs.org/manual/en/color-management.html)
+- **让影子跟着真正的投影者。** 实时动物的投影使用与可见皮肤相同的肢体、头颌和尾部变形，草影使用同一风场。全景阴影覆盖展柜；靠近动物时，第二张只记录深度的阴影图覆盖观察点周围约 20 × 20 个场景单位，两图在边缘渐变。近景投影按光空间纹素对齐。脚下另有轻微接触遮蔽，随地面坡向放置。[Three.js 阴影相机与阴影贴图分辨率](https://threejs.org/manual/en/shadows.html)
+- **最后校准反射。** 水面读取主光的实际方向、颜色和遮挡。反射方向来自眼睛与波面法线，正视水面较易看见河床，沿水面看时窗光反射增强。水与玻璃的正入射反射率分别取约 0.0204 和 0.04，按 Schlick 近似过渡到掠射角。展厅环境反射使用预滤波与亮部压缩，保留动物轮廓；属于实时环境近似。[《Physically Based Rendering》第四版：镜面反射与透射](https://pbr-book.org/4ed/Reflection_Models/Specular_Reflection_and_Transmission)
+
+### 光照资产来源
+
+- [展厅 HDR 环境探针](textures/hall-prefiltered.hdr) 来自 Poly Haven 的 *Events Hall Interior*，摄影 Dimitrios Savva，处理 Jarod Guest，CC0。原始 1K Radiance HDR 缩为 256 × 128，经 Three.js 的 PMREMGenerator 离线生成 336 × 256 的多粗糙度 CubeUV 图集，保留线性高动态范围，按主要窗光方向旋转。它给玻璃、水面和精细模型提供室内采光参考。画面中可见的展厅背景仍是本项目的生图展厅。[资产页](https://polyhaven.com/a/events_hall_interior) · [Poly Haven 授权](https://polyhaven.com/license)
+- [河岸地表细节](textures/floodplain-ground.webp) 来自 Amal Kumar 的 *Sparse Grass*，CC0。取其漫反射图的相对亮度、OpenGL 法线 XY 分量与植被遮罩，打包为 384 × 384 无损 WebP。近景用约两米幅宽显示土粒与草根的受光，实际草量、水量和泥滩范围由生态快照决定。[资产页](https://polyhaven.com/a/sparse_grass)

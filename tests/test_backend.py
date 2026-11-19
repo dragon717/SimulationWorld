@@ -43,7 +43,7 @@ class BackendTest(unittest.TestCase):
             self.fail("Go server did not start")
         with urlopen(url, timeout=3) as response:
             self.assertEqual(response.read(), (ROOT / "index.html").read_bytes())
-        for name in ("museum.css", "environment.js", "river.js", "ui/gallery.webp", "ui/smoke-glass.webp"):
+        for name in ("museum.css", "environment.js", "river.js", "lighting.js", "textures/hall-prefiltered.hdr", "textures/floodplain-ground.webp", "ui/gallery.webp", "ui/smoke-glass.webp"):
             with self.subTest(asset=name), urlopen(url + name, timeout=3) as response:
                 self.assertEqual(response.read(), (ROOT / name).read_bytes())
         self.assertEqual(first["tick"], 0)
