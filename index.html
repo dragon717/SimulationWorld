@@ -2,6 +2,8 @@
 <html lang="zh-CN">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="data:,">
+<link rel="modulepreload" href="./viewer.js">
 <title>拉普蒂河漫滩 · 模拟世界</title>
 <style>
   :root {color-scheme:light; color:#233e34; background:#f4f1e8; font:16px Georgia,"Songti SC","Noto Serif CJK SC",serif}
@@ -34,6 +36,15 @@
   nav small {padding-left:4px;font-variant-numeric:tabular-nums}
   #sim-note {color:#924824}
   footer span:last-child {display:flex;gap:18px}
+  #world {min-height:0;display:grid;grid-template-columns:minmax(0,1fr) auto}
+  #monitor {font:13px system-ui,sans-serif;width:clamp(220px,21vw,310px);max-height:70svh;overflow:auto;padding:12px 16px;border-left:1px solid #c7c7b7}
+  #monitor h2 {font-size:15px;margin:8px 0} #monitor p {margin:5px 0 10px}
+  #monitor ol {padding:0;list-style:none;margin:4px 0;font-size:12px;line-height:1.8}
+  #monitor button {padding:2px 8px}
+  #history {width:100%;height:64px}
+  #minimap {position:relative;height:105px;aspect-ratio:1;margin:auto} #minimap canvas {position:absolute;width:100%;height:100%}
+  #world-hash {font:11px monospace} #range {font-size:11px}
+  @media(max-width:720px){#world {display:flex;flex-direction:column} #monitor {width:auto;max-height:22svh;border-left:0;border-top:1px solid #c7c7b7} #viewport {flex:1} }
   @media(max-width:620px) {header {gap:10px; padding-block:12px} nav {gap:2px} button {padding:7px} footer {font-size:12px; gap:6px}}
 </style>
 <script type="importmap">
@@ -48,11 +59,19 @@
     <button disabled data-view="mugger" aria-label="沼泽鳄" aria-pressed="false">沼泽鳄<small></small></button>
   </nav>
 </header>
-<main id="viewport">
+<div id="world"><main id="viewport">
   <img src="previews/rapti-floodplain.jpg" alt="河道穿过草地，两头花鹿和一头孟加拉虎位于远岸，沼泽鳄伏在近岸浅水中。">
   <p id="individual" hidden></p>
   <p role="status" id="status">正在打开三维场景…</p>
 </main>
+<aside id="monitor" hidden aria-label="生态监控">
+  <h2>生态监控</h2><p>草总量 <strong id="grass-total"></strong><br>状态哈希 <code id="world-hash"></code></p>
+  <h2>种群曲线</h2><div aria-label="选择曲线"><button data-series="deer" aria-pressed="true">鹿</button><button data-series="tiger" aria-pressed="false">虎</button><button data-series="crocodile" aria-pressed="false">鳄</button></div>
+  <canvas id="history" width="280" height="72" aria-label="所选物种种群历史"></canvas><p id="range"></p>
+  <h2>世界小地图</h2><div id="minimap"><canvas id="map-field"></canvas><canvas id="world-map" width="160" height="160" aria-label="河道、种群位置及当前视野"></canvas></div>
+  <p>棕鹿 · 橙虎 · 墨绿鳄（小点为幼体）<br>白卵 · 褐色遗骸 · 青色水面 · 黄褐淤泥</p>
+  <h2>最近事件</h2><ol></ol>
+</aside></div>
 <section id="simulation" aria-label="生态演化" hidden>
   <div class="commands"><button id="play" disabled>开始演化</button><button id="step" disabled>单步</button>
     <label>速度 <select id="speed"><option value="1">1×</option><option value="5">5×</option><option value="20">20×</option></select></label>

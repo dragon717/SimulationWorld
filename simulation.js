@@ -11,22 +11,34 @@ const labels = {
 };
 const $ = (id) => document.getElementById(id);
 
-export async function snapshot(path = 'state') {
-  const res = await fetch('/api/' + path, { method: path === 'state' ? 'GET' : 'POST', cache: 'no-store' });
-  const body = await res.text();
-  if (!res.ok) throw new Error('生态引擎请求失败（HTTP ' + res.status + '）');
-  // Go sends uint64 seeds as JSON numbers. Keep all digits for a subsequent reset.
-  const state = JSON.parse(body.replace(/("seed"\s*:\s*)(\d+)/, '$1"$2"'));
-  if (
-    !Array.isArray(state.animals) ||
-    state.terrain?.length !== state.width * state.height ||
-    !Array.isArray(state.water)
-  )
-    throw new Error('服务未返回生态快照，请重新启动游戏。');
-  return state;
+let worker,
+  sequence = 0;
+const pending = new Map();
+export function snapshot(path = 'state') {
+  if (!worker) {
+    worker = new Worker('./snapshot-worker.js', { type: 'module' });
+    worker.onmessage = ({ data }) => {
+      const job = pending.get(data.id);
+      if (!job) return;
+      pending.delete(data.id);
+      if (data.error) job.reject(new Error(data.error));
+      else job.resolve(data.state);
+    };
+    worker.onerror = () => {
+      for (const job of pending.values()) job.reject(new Error('无法读取生态快照'));
+      pending.clear();
+      worker.terminate();
+      worker = null;
+    };
+  }
+  return new Promise((resolve, reject) => {
+    const id = ++sequence;
+    pending.set(id, { resolve, reject });
+    worker.postMessage({ id, path });
+  });
 }
 
-export function connectSimulation(initial, apply) {
+export function connectSimulation(initial, apply, freeze) {
   const play = $('play'),
     step = $('step'),
     reset = $('reset'),
@@ -37,10 +49,10 @@ export function connectSimulation(initial, apply) {
     playing = false,
     writing = false,
     poll = null;
-  function display(s) {
+  function display(s, interval = 0) {
     if (current && s.seed === current.seed && s.tick === current.tick && s.state_hash === current.state_hash)
       return;
-    apply(s);
+    apply(s, interval);
     if (!current || current.seed !== s.seed) seed.value = s.seed;
     current = s;
     const counts = { deer: 0, tiger: 0, crocodile: 0 };
@@ -100,28 +112,45 @@ export function connectSimulation(initial, apply) {
       buttons();
     }
   }
-  async function advanceOnce(path) {
+  async function advanceOnce(path, interval = 0) {
     buttons();
-    display(await snapshot(path));
+    display(await snapshot(path), interval);
   }
+  let wake;
+  speed.addEventListener('change', () => wake?.());
   async function autoplay() {
     await exclusive(async () => {
       playing = true;
       buttons();
       while (playing && !document.hidden) {
-        const n = Number(speed.value);
-        await advanceOnce(n === 1 ? 'step' : 'run?n=' + n);
-        if (playing) await new Promise((resolve) => setTimeout(resolve, 950));
+        const period = 1000 / Number(speed.value),
+          begin = performance.now();
+        await advanceOnce('step', period);
+        const remaining = period - (performance.now() - begin);
+        if (playing && remaining > 0)
+          await new Promise((resolve) => {
+            const timer = setTimeout(() => {
+              wake = null;
+              resolve();
+            }, remaining);
+            wake = () => {
+              clearTimeout(timer);
+              wake = null;
+              resolve();
+            };
+          });
       }
     });
   }
   play.onclick = () => {
     if (playing) {
       playing = false;
+      wake?.();
+      freeze();
       buttons();
     } else autoplay();
   };
-  step.onclick = () => exclusive(() => advanceOnce('step'));
+  step.onclick = () => exclusive(() => advanceOnce('step', 250));
   reset.onclick = () => {
     const value = seed.value.trim();
     if (!/^\d{1,20}$/.test(value) || BigInt(value) > 18446744073709551615n) {
@@ -131,7 +160,11 @@ export function connectSimulation(initial, apply) {
     exclusive(() => advanceOnce('reset?seed=' + encodeURIComponent(value)));
   };
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) playing = false;
+    if (document.hidden) {
+      playing = false;
+      wake?.();
+      freeze();
+    }
   });
   // Read-only tabs follow the same server world; merely opening them never adds a second clock.
   setInterval(() => {

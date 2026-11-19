@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "python3 backend.py",
-    "test": "node --test tests/ecosystem.test.js"
+    "test": "node --test"
   },
   "dependencies": {
     "three": "0.180.0"

@@ -26,3 +26,12 @@
 | 宣纸矿物底纹 | 正射微距、暖象牙白宣纸纤维、浅灰矿物沉积与淡墨洇边，低反差、均匀照明。以网格顶点颜色叠出草木、河水、沙滩的色差。 | [底纹](textures/pigment.jpg) |
 | 三种动物的体表 | 三行横向材质图集，上行虎的赭橙短毛和收尖黑纹，中行花鹿的栗色与行列白斑，下行沼泽鳄的橄榄灰皮肤与盾鳞。 | [虎](textures/tiger.jpg) · [鹿](textures/chital.jpg) · [鳄](textures/mugger.jpg) |
 | 虎与鹿的四肢 | 对半分隔的平面皮毛样本，虎腿为稀疏横向断纹，鹿腿从上部少量白斑过渡至浅黄褐色。毛流沿腿向下。 | [虎腿](textures/tiger-leg.jpg) · [鹿腿](textures/chital-leg.jpg) |
+
+## 动物动作参考与触发条件
+
+- **花鹿移动、吃草和饮水**　花鹿观察记录将移动、取食和饮水分别编码。本作以交错的四肢支撑和摆动表现行走。连续两步中，同一只鹿原地增能且脚下草量下降时，画面压低前躯、转下颈部并活动下颌。连续原地停留且相邻格有水时，鹿才会面向水面低头。低头取食与临水低头的姿势区别另参考了有蹄类的观察行为表。[花鹿活动记录，Rajawat 与 Chandra](https://environmentandecology.com/wp-content/uploads/2024/09/MS5-8.pdf) · [野外与圈养观察的行为表](https://doi.org/10.1371/journal.pone.0284221)
+- **孟加拉虎行走、涉水和取食**　行走时四足错相，足掌在摆动期向前，支撑期相对身体向后。真实虎的步行肢位有运动学测量；动物园也记录了虎善游泳。三维表现让入水移动的虎降低躯干、抬头，以四肢划水。成功获取能量的捕猎或食腐事件可触发低头咬合。步幅和划水幅度按本作模型调校。[Day 与 Jayne 的猫科步态研究，含虎](https://pubmed.ncbi.nlm.nih.gov/17267650/) · [史密森尼国家动物园的虎物种资料](https://nationalzoo.si.edu/animals/tiger)
+- **虎舔水**　岸边停步时，虎屈低前躯，吻端靠近水面，近景模型的舌和下颌交替伸收。Reis 等人的实验补充材料包含虎的高速摄影。本文只据此设计动作顺序，模型中的频率为表现参数。[Science 论文](https://pubmed.ncbi.nlm.nih.gov/21071630/) · [含虎拍摄说明的实验补充材料](https://www.epfl.ch/labs/flexlab/wp-content/uploads/2017/12/27_2010_Reis_Science_sm.pdf)
+- **沼泽鳄游动与进食**　水中移动时，四肢靠近体侧，侧向弯曲沿躯干传向尾尖，尾部幅度较大。陆地移动时四肢展开交替迈动，成功取食时下颌开合。游姿参考鳄类运动资料和其他鳄属物种的实测，属于鳄类共有运动方式的近似。[IUCN 鳄类专家组](https://www.iucncsg.org/pages/Locomotion.html) · [Davenport 与 Sayer 的鳄属游动观察](https://www.thebhs.org/publications/the-herpetological-journal/volume-1-number-8-december-1989/1206-06-observations-on-the-aquatic-locomotion-of-young-salt-water-crocodiles-crocodylus-porosus-schneider/file)
+
+饮水是岸边表现动作，上游没有口渴值或饮水事件。动画只消费位置、水量、能量和事件，模拟中的生死、能量及水量仍由上游决定。姿态由上述参考和原有模型手工编写。
