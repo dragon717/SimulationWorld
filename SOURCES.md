@@ -35,3 +35,15 @@
 - **沼泽鳄游动与进食**　水中移动时，四肢靠近体侧，侧向弯曲沿躯干传向尾尖，尾部幅度较大。陆地移动时四肢展开交替迈动，成功取食时下颌开合。游姿参考鳄类运动资料和其他鳄属物种的实测，属于鳄类共有运动方式的近似。[IUCN 鳄类专家组](https://www.iucncsg.org/pages/Locomotion.html) · [Davenport 与 Sayer 的鳄属游动观察](https://www.thebhs.org/publications/the-herpetological-journal/volume-1-number-8-december-1989/1206-06-observations-on-the-aquatic-locomotion-of-young-salt-water-crocodiles-crocodylus-porosus-schneider/file)
 
 饮水是岸边表现动作，上游没有口渴值或饮水事件。动画只消费位置、水量、能量和事件，模拟中的生死、能量及水量仍由上游决定。姿态由上述参考和原有模型手工编写。
+
+## 玻璃生态博物馆的界面美术
+
+展馆摄影风格图、玻璃材质与物种展签由 ImageGen 为本项目生成，网页使用裁切后的 WebP 图像。画面中的展馆是虚构展陈空间。标题、物种名称、实时数字和事件文字排在展签及监控面板上，图表和小地图读取实际模拟数据。
+
+- [展厅背景](ui/gallery.webp) 的生成描述采用深色玄武岩、两侧通透玻璃、展柜里的河岸草木与顶部暖光。中央留出空间放置真正可旋转的三维河漫滩。
+- [银绿色磨砂玻璃](ui/silver-glass.webp)、[浅青玻璃展签](ui/jade-glass.webp)、[烟色玻璃](ui/smoke-glass.webp) 与 [玄武岩饰面](ui/basalt.webp) 取自同一张四格材质图。生成时预留空白中心与窄玻璃边缘，供中文标签、控件及数据排版。
+- 四张物种导航图取自同一张展柜摄影风格图集，分别展示 [河道全景](ui/river.webp)、[花鹿](ui/chital.webp)、[孟加拉虎](ui/tiger.webp) 和 [沼泽鳄](ui/mugger.webp)。选中状态采用浅色玻璃铭牌。
+
+## 风、草与水
+
+草根固定在地面，草叶和穗头按离地高度弯折。同一组风向和阵风强度给水面施加扰动。水面高度和速度使用带阻尼的二维线性浅水波近似，水深影响传播速度，湿三角形之间交换等量反向通量，干涸区域退出计算。动物尾迹、雨点和点击都向这一水面施加局部冲量。河流的水量与干湿判定仍读取上游状态。波速与水深关系参考 [Clawpack 浅水方程文档](https://www.clawpack.org/riemann_book/html/Shallow_water_approximate.html)。

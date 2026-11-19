@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { createEcosystem } from './ecosystem.js';
 import { monitor } from './monitor.js';
+import { animateOriginal } from './environment.js';
 import { actionNames } from './motion.js';
 import { connectSimulation, snapshot } from './simulation.js';
 
@@ -15,7 +16,11 @@ export async function openHabitat() {
     loader.loadAsync(simulated ? './assets/habitat-map.glb' : './assets/rapti-floodplain.glb'),
     simulated ? snapshot() : null,
   ]);
-  const renderer = new THREE.WebGLRenderer({ antialias: !simulated, powerPreference: 'high-performance' });
+  const renderer = new THREE.WebGLRenderer({
+    alpha: true,
+    antialias: !simulated,
+    powerPreference: 'high-performance',
+  });
   renderer.setPixelRatio(Math.min(devicePixelRatio, simulated ? 1.25 : 2));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.autoUpdate = !simulated;
@@ -23,11 +28,12 @@ export async function openHabitat() {
   renderer.shadowMap.type = simulated ? THREE.BasicShadowMap : THREE.PCFSoftShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xe9e6da);
+  renderer.setClearColor(0x101c20, 0);
   scene.add(new THREE.HemisphereLight(0xfff7e4, 0xb4b59e, 2.0));
   const [gltf, initial] = await loading;
   const live = simulated ? createEcosystem(scene, gltf.scene) : null;
   if (!live) scene.add(gltf.scene);
+  const original = live ? null : animateOriginal(gltf.scene);
   const key = new THREE.DirectionalLight(0xffedd0, 2.8);
   key.position.set(-9, 17, 10);
   if (live) key.position.multiplyScalar(7);
@@ -44,12 +50,44 @@ export async function openHabitat() {
   gltf.scene.traverse((node) => {
     if (node.isMesh) node.castShadow = node.receiveShadow = true;
   });
-  const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(400, 400),
-    new THREE.MeshLambertMaterial({ color: 0xe5dfd0 }),
+  const w = live ? initial.width + 2 : 19.1,
+    d = live ? initial.height + 2 : 13.7;
+  const caseHeight = live ? Math.max(8, w * 0.105) : 6.6;
+  const seat = live ? -1.425 : -1.32;
+  const plinth = new THREE.Mesh(
+    new THREE.BoxGeometry(w + 1, w * 0.029, d + 1),
+    new THREE.MeshStandardMaterial({ color: 0x27393b, roughness: 0.48, metalness: 0.29 }),
   );
+  plinth.position.y = seat - w * 0.0145;
+  plinth.castShadow = plinth.receiveShadow = true;
+  scene.add(plinth);
+  const standHeight = w * 0.065;
+  const stand = new THREE.Mesh(new THREE.BoxGeometry(w * 0.8, standHeight, d * 0.8), plinth.material);
+  stand.position.y = seat - w * 0.029 - standHeight * 0.5;
+  stand.castShadow = stand.receiveShadow = true;
+  scene.add(stand);
+  const enclosure = new THREE.BoxGeometry(w, caseHeight, d);
+  const glass = new THREE.Mesh(
+    enclosure,
+    new THREE.MeshBasicMaterial({
+      color: 0xa1dddf,
+      transparent: true,
+      opacity: 0.035,
+      depthWrite: false,
+      side: THREE.FrontSide,
+    }),
+  );
+  const seams = new THREE.LineSegments(
+    new THREE.EdgesGeometry(enclosure),
+    new THREE.LineBasicMaterial({ color: 0xb6e4e2, transparent: true, opacity: 0.36, depthWrite: false }),
+  );
+  glass.position.y = seams.position.y = seat + caseHeight * 0.5;
+  glass.renderOrder = 4;
+  seams.renderOrder = 5;
+  scene.add(glass, seams);
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(440, 440), new THREE.ShadowMaterial({ opacity: 0.26 }));
   floor.rotation.x = -Math.PI / 2;
-  floor.position.y = live ? -1.42 : -1.32;
+  floor.position.y = seat - w * 0.029 - standHeight - 0.008;
   floor.receiveShadow = true;
   scene.add(floor);
   const camera = new THREE.PerspectiveCamera(34, 1, 0.04, live ? 1600 : 250);
@@ -87,10 +125,28 @@ export async function openHabitat() {
     const aspect = Math.min(1, camera.aspect / 1.5);
     if (view === home) {
       followedId = undefined;
-      controls.target.set(0, live ? 0 : 1.2, live ? 0 : -0.2);
-      const offset = new THREE.Vector3(5.2, live ? 21 : 14, 23);
-      if (live) offset.normalize().multiplyScalar(live.span * 1.78);
-      camera.position.copy(controls.target).addScaledVector(offset, 1 / aspect);
+      const direction = new THREE.Vector3(0.2, live ? 0.72 : 0.64, 1).normalize();
+      const right = new THREE.Vector3(direction.z, 0, -direction.x).normalize();
+      const vertical = direction.clone().cross(right);
+      const base = seat - w * 0.029 - standHeight;
+      controls.target.set(0, (base + seat + caseHeight) / 2, 0);
+      const halfHeight = (seat + caseHeight - base) / 2,
+        tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+      let fit = 0;
+      for (const x of [-1, 1])
+        for (const y of [-1, 1])
+          for (const z of [-1, 1]) {
+            const corner = new THREE.Vector3((x * (w + 1)) / 2, y * halfHeight, (z * (d + 1)) / 2);
+            fit = Math.max(
+              fit,
+              corner.dot(direction) +
+                Math.max(
+                  Math.abs(corner.dot(vertical)) / tanV,
+                  Math.abs(corner.dot(right)) / (tanV * camera.aspect),
+                ),
+            );
+          }
+      camera.position.copy(controls.target).addScaledVector(direction, fit * 1.09);
     } else if (live) {
       const a = live.focus(view, followedId);
       if (!a) return choose(home);
@@ -198,7 +254,7 @@ export async function openHabitat() {
   }
   choose(home);
   const ground = gltf.scene.getObjectByName('Floodplain_ground_and_riverbed');
-  const river = gltf.scene.getObjectByName('Jade_channel');
+
   const ray = new THREE.Raycaster();
   let press;
   canvas.addEventListener('pointerdown', (e) => {
@@ -215,7 +271,12 @@ export async function openHabitat() {
       new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, 1 - ((e.clientY - r.top) / r.height) * 2),
       camera,
     );
-    const point = live ? live.pick(ray.ray) : ray.intersectObjects([ground, river])[0]?.point;
+    const water = live ? live.river : original.river;
+    const land = live ? live.pick(ray.ray) : ray.intersectObject(ground)[0]?.point;
+    const wet = ray.intersectObject(water.mesh)[0];
+    const touches = wet && (!land || wet.distance <= ray.ray.origin.distanceTo(land) + 0.001);
+    const point = touches ? wet.point : land;
+    if (touches && !watcher.matches) water.field.disturb(point.x, point.z, -0.82, live ? 1.35 : 0.52);
     if (!point) return;
     camera.position.add(point.clone().sub(controls.target));
     controls.target.copy(point);
@@ -242,12 +303,15 @@ export async function openHabitat() {
     resize();
     if (active) choose(active);
   }).observe(viewport);
+  const windLabel = document.querySelector('#wind-reading');
+  let nextWindLabel = 0;
   let last = performance.now();
   renderer.setAnimationLoop((now) => {
     if (document.hidden) {
       last = now;
       return;
     }
+    original?.frame(Math.max(0, (now - last) / 1000), watcher.matches);
     if (!watcher.matches) mixer.update(Math.min((now - last) / 1000, 0.08));
     last = now;
     if (live) {
@@ -280,6 +344,21 @@ export async function openHabitat() {
         }
       }
     }
+    if (now >= nextWindLabel) {
+      nextWindLabel = now + 600;
+      const u = (live ? live.wind : original.wind).uniforms;
+      const a = Math.atan2(u.windDir.value.y, u.windDir.value.x);
+      const direction = ['东', '东南', '南', '西南', '西', '西北', '北', '东北'][
+        (Math.round((a * 4) / Math.PI) + 8) % 8
+      ];
+      windLabel.hidden = watcher.matches;
+      windLabel.textContent = (u.windGust.value > 1 ? '阵风' : '微风') + ' · 向' + direction;
+    }
+    const displayDistance = camera.position.distanceTo(controls.target) / w;
+    const glassVisibility = THREE.MathUtils.smoothstep(displayDistance, 0.5, 1.25);
+    glass.visible = seams.visible = glassVisibility > 0;
+    glass.material.opacity = 0.034 * glassVisibility;
+    seams.material.opacity = 0.36 * glassVisibility;
     renderer.render(scene, camera);
   });
 }

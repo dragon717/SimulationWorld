@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { breeze, bendGrass } from './environment.js';
+import { waterSurface } from './river.js';
 import { activity, channels, animateMaterial } from './motion.js';
 
 const speciesViews = { deer: 'chital', tiger: 'tiger', crocodile: 'mugger' };
@@ -13,7 +15,17 @@ function tuftGeometry() {
       dx = Math.cos(a),
       dz = Math.sin(a),
       h = 0.18 + (blade % 4) * 0.075;
-    vertices.push(-dz * 0.035, 0, dx * 0.035, dz * 0.035, 0, -dx * 0.035, dx * h * 0.6, h, dz * h * 0.6);
+    const strip = (t, side) => [
+      dx * h * 0.6 * t * t - dz * side * 0.035 * (1 - t),
+      h * t,
+      dz * h * 0.6 * t * t + dx * side * 0.035 * (1 - t),
+    ];
+    const a0 = strip(0, -1),
+      b0 = strip(0, 1),
+      a1 = strip(0.55, -1),
+      b1 = strip(0.55, 1),
+      tip = strip(1, 0);
+    vertices.push(...a0, ...b0, ...a1, ...b0, ...b1, ...a1, ...a1, ...b1, ...tip);
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
@@ -24,6 +36,19 @@ function tuftGeometry() {
 function createLandscape(scene, state, tree) {
   const { width: w, height: h, terrain } = state;
   const n = w * h;
+  const wind = breeze(state.seed);
+  const sub = 2;
+  const river = waterSurface(
+    w * sub,
+    h * sub,
+    (x, z) => [x / sub - w / 2, 0.038, z / sub - h / 2],
+    (x, z) => {
+      const i = Math.floor(z / sub) * w + Math.floor(x / sub);
+      return terrain[i] === 1 ? i : -1;
+    },
+    state.water,
+    wind,
+  );
   const geometry = new THREE.PlaneGeometry(w, h, w, h).rotateX(-Math.PI / 2);
   const positions = geometry.attributes.position;
   // Distance from the river determines relief and bank vegetation; every channel comes from the grid.
@@ -100,7 +125,7 @@ function createLandscape(scene, state, tree) {
   sides.computeVertexNormals();
   const cut = new THREE.Mesh(sides, new THREE.MeshStandardMaterial({ color: 0x9b896d, side: THREE.DoubleSide }));
   const group = new THREE.Group();
-  group.add(ground, cut);
+  group.add(ground, cut, river.mesh);
   scene.add(group);
 
   const clumps = [];
@@ -124,7 +149,7 @@ function createLandscape(scene, state, tree) {
     }
   const grass = new THREE.InstancedMesh(
     tuftGeometry(),
-    new THREE.MeshLambertMaterial({ color: 0x879659, side: THREE.DoubleSide }),
+    bendGrass(new THREE.MeshLambertMaterial({ color: 0x879659, side: THREE.DoubleSide }), wind, true),
     clumps.length,
   );
   grass.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -156,6 +181,7 @@ function createLandscape(scene, state, tree) {
   });
   const baseMatrices = grass.instanceMatrix.array.slice();
   function update(s) {
+    river.configure(s.water);
     const wet = Math.min(1, s.rainfall / 4);
     for (let i = 0; i < n; i++) {
       const j = i * 4,
@@ -236,8 +262,9 @@ function createLandscape(scene, state, tree) {
       m.geometry.dispose();
     }
     map.dispose();
+    river.dispose();
   }
-  return { ground, surface, update, dispose, pick };
+  return { ground, surface, update, dispose, pick, river, wind };
 }
 
 // Models share geometry and materials. Each snapshot animal keeps its own position, heading and age.
@@ -389,6 +416,9 @@ export function createEcosystem(scene, library) {
         to.y -= 0.67 * size;
       const actor = {
         action: act.name,
+        wakeAt: old?.wakeAt ?? -Infinity,
+        wakeX: old?.wakeX ?? to.x,
+        wakeZ: old?.wakeZ ?? to.z,
         cellX: a.x,
         cellY: a.y,
         heading,
@@ -451,7 +481,12 @@ export function createEcosystem(scene, library) {
   }
   const frustum = new THREE.Frustum();
   const bounds = new THREE.Sphere(new THREE.Vector3(), 3);
+  let previousFrame;
   function frame(now, reduceMotion, camera) {
+    const dt = previousFrame == null ? 0 : Math.max(0, (now - previousFrame) * 0.001);
+    previousFrame = now;
+    landscape.wind.advance(dt, reduceMotion, last.rainfall);
+    landscape.river.frame(dt, reduceMotion, last.rainfall);
     camera.updateMatrixWorld();
     frustum.setFromProjectionMatrix(matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
     const t =
@@ -464,6 +499,33 @@ export function createEcosystem(scene, library) {
       near.length = distant.length = 0;
       for (const a of groups[kind] ?? []) {
         a.position.lerpVectors(a.from, a.to, t);
+        if (a.view === 'tiger' || a.view === 'mugger') {
+          const level = landscape.river.levelAt(
+            (a.position.x + last.width / 2) * 2,
+            (a.position.z + last.height / 2) * 2,
+          );
+          if (level !== null) a.position.y = level - (a.view === 'mugger' ? 0.42 : 0.87) * a.size;
+        }
+        const sip = a.action === 'drink',
+          travelled = (a.position.x - a.wakeX) ** 2 + (a.position.z - a.wakeZ) ** 2;
+        if (
+          !reduceMotion &&
+          freezeAt === null &&
+          t < 1 &&
+          now - a.wakeAt > (sip ? 450 : 110) &&
+          ((sip && a.weights[3] > 0.6) || (a.action === 'swim' && travelled > 0.1))
+        ) {
+          const reach = (sip ? 0.92 : -0.62) * a.size;
+          landscape.river.field.disturb(
+            a.position.x + Math.cos(a.facing) * reach,
+            a.position.z - Math.sin(a.facing) * reach,
+            sip ? -0.24 : -0.55,
+            sip ? 0.9 : 1.1,
+          );
+          a.wakeAt = now;
+          a.wakeX = a.position.x;
+          a.wakeZ = a.position.z;
+        }
         bounds.center.copy(a.position);
         if (!frustum.intersectsSphere(bounds)) continue;
         const diff = a.heading - a.startFacing;
@@ -510,6 +572,12 @@ export function createEcosystem(scene, library) {
     },
     pick(ray) {
       return landscape.pick(ray);
+    },
+    get river() {
+      return landscape.river;
+    },
+    get wind() {
+      return landscape.wind;
     },
     get ground() {
       return landscape.ground;
