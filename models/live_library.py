@@ -15,7 +15,8 @@ tint.layer_name = 'Pigment'
 plain.node_tree.links.new(tint.outputs[0],next(n for n in plain.node_tree.nodes if n.type=='BSDF_PRINCIPLED').inputs['Base Color'])
 
 def role(name):
-    if name.startswith(('Neck,','Masked face','Broad snout','Broad scaled')): return 2
+    if name.startswith('Furred jaw'): return 7
+    if name.startswith(('Neck,','Masked face','Furred ears','Furred eye rims','Facial details','Broad snout','Broad scaled')): return 2
     if name.startswith('Lower jaw'): return 3
     if name.startswith(('Ringed tail','Scaled tail','Tapered crested')): return 4
     if name.startswith(('Spotted shoulders','Striped shoulders','Paws','Cleft hooves','Osteoderms')): return 1
@@ -30,12 +31,18 @@ def paint(mesh):
     buf=pixels[image.name]; w,h=image.size
     colors=mesh.color_attributes['Pigment']
     uv=mesh.uv_layers.active.data
+    tints = [c.color[:3] for c in colors.data] if image.name.endswith('-head.jpg') else None
     for loop in mesh.loops:
         u,v=uv[loop.index].uv
         offset=4*(int(v%1*h)*w+int(u%1*w))
         vertex=colors.data[loop.vertex_index]
         # Pigment.jpg is a nearly white detail map; its vertex pigments already carry the hue.
-        if image.name!='pigment.jpg': vertex.color=(*buf[offset:offset+3],1)
+        if image.name.startswith(('chital','tiger')):
+            vertex.color_srgb=(*buf[offset:offset+3],1)
+            if tints is not None:
+                vertex.color=(*[c*t for c,t in zip(vertex.color[:3],tints[loop.vertex_index])],1)
+        elif image.name!='pigment.jpg':
+            vertex.color=(*buf[offset:offset+3],1)
     mesh.materials.clear()
     mesh.materials.append(plain)
 
@@ -50,9 +57,15 @@ for detail in (False, True):
         root['template']=name
         export.append(root)
         children=[]
-        for src in source.children_recursive:
+        source_parts=source.children_recursive
+        legacy_jaw=name.startswith(('Chital','Bengal')) and not any(p.name.startswith('Furred jaw') for p in source_parts)
+        for src in source_parts:
             if src.type!='MESH': continue
+            if not detail and 'furRole' in src: continue
             part=src.copy();part.data=src.data.copy()
+            for mod in list(part.modifiers):
+                if mod.type=='ARMATURE': part.modifiers.remove(mod)
+            part.vertex_groups.clear()
             bpy.context.collection.objects.link(part)
             transform=src.matrix_local.copy()
             parent=src.parent
@@ -62,12 +75,14 @@ for detail in (False, True):
                 parent=parent.parent
             part.parent=root;part.matrix_local=Matrix.Identity(4);part.data.transform(transform)
             mesh=part.data
-            r=role(src.name)
+            r=src.get('furRole', role(src.name))
             if not detail: paint(mesh)
-            attr=mesh.attributes.new('_part','FLOAT','POINT')
+            attr=mesh.attributes.get('_part')
+            weighted = attr is not None
+            if not weighted: attr=mesh.attributes.new('_part','FLOAT','POINT')
             roles=[float(r)]*len(mesh.vertices)
-            if r==2 and name!='Marsh mugger':
-                # The lower muzzle is a separate connected shell in the original authored head.
+            if legacy_jaw and r==2 and 'furRole' not in src:
+                # Older project files keep the moving jaw inside the head mesh.
                 bm=bmesh.new();bm.from_mesh(src.data)
                 target=Vector((.409,0,-.054) if name=='Bengal tiger' else (.471,0,.428))
                 unseen=set(bm.verts)
@@ -83,16 +98,33 @@ for detail in (False, True):
                         for v in island: roles[v.index]=7.
                 bm.free()
                 assert 7. in roles,src.name
-            attr.data.foreach_set('value',roles)
-            if not detail:
+            if not weighted: attr.data.foreach_set('value',roles)
+            if name.startswith('Sal') and 'folded leaves' in src.name:
+                # Retain entire folded leaves and their attachment points at overview resolution.
+                bm=bmesh.new();bm.from_mesh(mesh)
+                bmesh.ops.delete(bm, geom=[v for v in bm.verts if (v.index//5)%6], context='VERTS')
+                bm.to_mesh(mesh);bm.free()
+                buds=mesh.attributes.new('_bud','FLOAT_VECTOR','POINT')
+                for i in range(0,len(mesh.vertices),5):
+                    base=mesh.vertices[i].co.copy()
+                    for k in range(i,i+5):
+                        v=mesh.vertices[k]
+                        v.co=base+(v.co-base)*1.55
+                        buds.data[k].vector=(base.x,base.z,-base.y)
+            elif not detail:
                 mod=part.modifiers.new('Distance silhouette','DECIMATE')
-                mod.ratio=max(.035,min(1,18/max(1,len(mesh.polygons))))
+                mod.ratio=.12 if name.startswith('Sal') else .055 if weighted else max(.035,min(1,18/max(1,len(mesh.polygons))))
                 bpy.context.view_layer.objects.active=part
                 bpy.ops.object.modifier_apply(modifier=mod.name)
-            children.append(part)
+            if name.startswith('Sal'):
+                export.append(part)
+            else:
+                children.append(part)
+        if not children: continue
         if name=='Bengal tiger' and detail:
             bpy.ops.mesh.primitive_uv_sphere_add(segments=12,ring_count=6)
             tongue=bpy.context.object;tongue.name='Lapping tongue';tongue.parent=root
+            tongue.data.uv_layers.active.name='Paint'
             for v in tongue.data.vertices:
                 v.co=Vector((1.141+v.co.x*.068,.030*v.co.y,.935+v.co.z*.016))
             tongue.data.materials.append(plain)

@@ -19,13 +19,27 @@
 
 ## 材质与预览的制作来源
 
-三组原始纹理用内置 ImageGen 生成，裁切为以下 JPEG。上述机构资料用于造型观察；仓库内的动物和景观预览均由实际 Blender 网格渲染。
+原始纹理用内置 ImageGen 生成，裁切为以下 JPEG。上述机构资料用于造型观察；仓库内的动物和景观预览均由实际 Blender 网格渲染。
 
 | 生成内容 | 提示词要点 | 成品 |
 | --- | --- | --- |
 | 宣纸矿物底纹 | 正射微距、暖象牙白宣纸纤维、浅灰矿物沉积与淡墨洇边，低反差、均匀照明。以网格顶点颜色叠出草木、河水、沙滩的色差。 | [底纹](textures/pigment.jpg) |
 | 三种动物的体表 | 三行横向材质图集，上行虎的赭橙短毛和收尖黑纹，中行花鹿的栗色与行列白斑，下行沼泽鳄的橄榄灰皮肤与盾鳞。 | [虎](textures/tiger.jpg) · [鹿](textures/chital.jpg) · [鳄](textures/mugger.jpg) |
-| 虎与鹿的四肢 | 对半分隔的平面皮毛样本，虎腿为稀疏横向断纹，鹿腿从上部少量白斑过渡至浅黄褐色。毛流沿腿向下。 | [虎腿](textures/tiger-leg.jpg) · [鹿腿](textures/chital-leg.jpg) |
+| 花鹿与孟加拉虎的脸部 | 横向双层的平面短毛图集。每层从左侧太阳穴延伸到右侧吻端，顶部是额头，底部是浅色下颌。花鹿为栗色和浅褐色，虎为赭橙色、渐尖黑纹和乳白颊毛。眼球、鼻头和长须用现有模型单独绘制。每种动物取一层，分发为 1024 × 512 的底色贴图。 | [鹿头](textures/chital-head.jpg) · [虎头](textures/tiger-head.jpg) |
+| 虎与鹿的四肢 | 两列纵向毛皮图，上端肩胯，下端蹄爪。鹿腿从肩部少量白斑过渡到棕褐和沙色短毛；虎腿有分叉的深色斜带，下端过渡至蜜色趾毛，内侧较浅。毛流沿关节向下，每种动物使用一张 512 × 1024 的底色贴图。 | [虎腿](textures/tiger-leg.jpg) · [鹿腿](textures/chital-leg.jpg) |
+
+<details>
+<summary>头脸和四肢贴图的生成提示词</summary>
+
+**头脸图集**
+
+Produce one square PBR BASE COLOR texture atlas for an animal 3D game, precisely two equal horizontal bands that occupy the entire square, NO border or line between them. Each band is ONE flat rectangular (2:1) seamless-looking photographic swatch of facial pelage, not a portrait. Fully filled from edge to edge, orthographic macro scan, flat albedo with no shadows or highlights, rich varied hair tufts clearly resolved in diffuse color. Both strips go from rear temple on LEFT to bridge of muzzle on RIGHT, crown at TOP, cheek/chin at BOTTOM. Hair tips sweep mostly left and slightly downward, with radiating fans of shorter hair in the muzzle area. TOP HALF ONLY = adult South Asian chital deer head coat, warm chestnut tawny brown crown, buff cheeks, nuanced dark umber along top third of bridge, soft ivory along lower jaw and right muzzle, quiet soft transitions. No flank spotting on the face. BOTTOM HALF ONLY = Bengal tiger head coat, burnt ochre orange crown and bridge, irregular tapered branching black temple stripes concentrated on upper and middle LEFT TWO THIRDS that break into short cheek bars, broad creamy white lower cheeks and ivory chin, warm muzzle bridge on right. Individual colored fur fibers interrupt and soften the edges of each stripe. Markings should look organic, warm and matte. Strict exclusions: no eyes, pupils, eye openings, rendered face, actual nose, nostrils, lips, ears, whisker shafts, horns, silhouettes, backdrop, text, labels, gutters, shadows, black borders or graphic elements. Those details are separate geometry in the game; these are skin texture sheets.
+
+**四肢图集**
+
+A square game texture atlas. Precisely two adjacent equally wide vertical rectangular panels, fill the frame edge-to-edge, without any gap. Both are FLAT orthographic PBR base-color UV textures for a mammal's limb. No modeled leg shape, silhouette, background, horizon, paw outline, claws, hooves, text, dividers, labels, highlights or shadows. Very high-fidelity short matte fur, the actual pigmentation and individual hairs, with small aligned clumps and some longer guard hairs, sharp and photographically credible. In both panels TOP is the shoulder/haunch, BOTTOM is just above the toes/hoof; hair lies mostly downward, turning slightly around knee and hock. LEFT HALF: Indian chital deer fore/hind leg. Upper third rich subdued chestnut brown with a few small distinct ivory spots at the OUTSIDE shoulder only, middle is dusty tan, lower half muted sandy buff with fine warmer and darker fibers, a subtle pale inside margin and darker outer ridge. RIGHT HALF: Bengal tiger fore/hind leg. Rich tawny ochre upper half with unmistakable broad charcoal-black broken tiger bands: around 4-5 irregular tapered oblique transverse stripes distributed from upper shoulder to lower shin. Thick branching upper arm bands and a few narrower broken bands, edges resolve into small groups of hairs. In the lower FIFTH the stripes taper away; soft wheat-cream inner fur on the right side of this swatch and honey-buff paw tops at the bottom. Naturalistic mammalian hair with directional visible strand detail in every region, softly varied pigment in shadows-free flat daylight. No head or bodies. Material swatches, not photographs of animals.
+
+</details>
 
 ## 动物动作参考与触发条件
 
@@ -59,3 +73,15 @@
 
 - [展厅 HDR 环境探针](textures/hall-prefiltered.hdr) 来自 Poly Haven 的 *Events Hall Interior*，摄影 Dimitrios Savva，处理 Jarod Guest，CC0。原始 1K Radiance HDR 缩为 256 × 128，经 Three.js 的 PMREMGenerator 离线生成 336 × 256 的多粗糙度 CubeUV 图集，保留线性高动态范围，按主要窗光方向旋转。运行时分发同一图集的 gzip 压缩半精度像素，首帧之后再由后台线程解压。它给玻璃、水面和精细模型提供室内采光参考。画面中可见的展厅背景仍是本项目的生图展厅。[资产页](https://polyhaven.com/a/events_hall_interior) · [Poly Haven 授权](https://polyhaven.com/license)
 - [河岸地表细节](textures/floodplain-ground.webp) 来自 Amal Kumar 的 *Sparse Grass*，CC0。取其漫反射图的相对亮度、OpenGL 法线 XY 分量与植被遮罩，打包为 384 × 384 无损 WebP。近景用约两米幅宽显示土粒与草根的受光，实际草量、水量和泥滩范围由生态快照决定。[资产页](https://polyhaven.com/a/sparse_grass)
+
+## 草甸、娑罗树与动物毛发
+
+- **草叶与草丛美术。** 远处草丛和「近看草地」图标取自 *Grass Medium 01* 的漫反射和透明度图集，建模 Rico Cilliers，摄影 Rob Tuytel。选取一簇正面草叶，提取轮廓，按展柜日光调整颜色，保存为 256 × 118 的透明纹理。近处另外种植弧形立体草叶。两档共用草量、风和压草方向，草根贴合地形。[本地草丛纹理](textures/meadow-clump.webp) · [Poly Haven 原资产](https://polyhaven.com/a/grass_medium_01) · [CC0 授权](https://polyhaven.com/license)
+- **风和踩踏。** 参考 NVIDIA 的批量草丛与顶点风动、AMD 的草叶曲线、根梢明暗与距离分级。浏览器根据动物补帧后的真实位置记录局部压弯方向，离开后随时间恢复。草叶密度、弯曲幅度和恢复速度是展柜的美术调校值。[NVIDIA《GPU Gems》草地章节](https://developer.nvidia.com/gpugems/gpugems/part-i-natural-effects/chapter-7-rendering-countless-blades-waving-grass) · [AMD GPUOpen 程序化草地](https://gpuopen.com/learn/mesh_shaders/mesh_shaders-procedural_grass_rendering/)
+- **娑罗树换叶。** 印度特莱林区的样地记录了旱季落叶，以及落叶和新叶萌发重叠的个体差异。展柜以现有娑罗树骨架和折叶为原型，分别保留枝干和叶基；天气、岸距、土壤养分控制展叶、枯黄与木质部分的增长。树高和叶量是场景近似，刷新后按当前步数和环境重建。[Joshi 与 Bagri 的娑罗树林地观测](https://doi.org/10.51470/JOD.2025.4.2.01)
+- **鹿、虎毛被。** 花鹿的白斑和孟加拉虎的橙底黑褐纹参照博物馆及动物园的照片、物种资料。在躯干、四肢、脸颊、外耳、下颌、虎爪背和虎尾上分布逐根收尖的几何毛束。毛根取所属表面的贴图颜色和局部色素，沿腿向下梳理，在爪背转向趾尖，耳缘朝外。下颌毛束与下颌皮肤共用开合动作。实时版本仅在近景绘制这些毛束，继承身体各部位的动作。毛长、密度和梳理方向为本作设计。[法国国家自然历史博物馆 · 花鹿](https://www.mnhn.fr/en/chital) · [圣迭戈动物园 · 孟加拉虎](https://animals.sandiegozoo.org/animals/tiger) · [Epic Games · 毛发的网格表示和距离分级](https://dev.epicgames.com/documentation/en-us/unreal-engine/setting-up-cards-and-meshes-for-grooms-in-unreal-engine)
+
+
+### 鹿虎肩胯和颈部的衔接
+
+建模时用 Blender 自带的 OpenVDB 合并躯干、四肢、颈、头和虎爪的外轮廓，在肩胛、胯部和颊部留出圆滑的过渡。每只动物的主皮面有 6,400 个三角形。沿整张皮面展开后，将原有的躯干纹样逐渐过渡到颈颊和腿部的毛色，烘焙为 2048 × 2048 的底色贴图。毛束取色和运动权重都来自同一皮面。下颌单独开合。两种贴图都由本项目的原画生成。[花鹿被毛](textures/chital-pelt.jpg) · [孟加拉虎被毛](textures/tiger-pelt.jpg) · [同机位实景对照](previews/coat-junctions.webp)

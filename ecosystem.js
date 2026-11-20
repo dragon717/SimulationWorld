@@ -1,47 +1,20 @@
 import * as THREE from 'three';
 import { groundRelief, receiveDaylight } from './lighting.js';
-import { breeze, bendGrass } from './environment.js';
+import { meadow, salGrove } from './vegetation.js';
+import { breeze } from './environment.js';
 import { waterSurface } from './river.js';
 import { activity, channels, animateMaterial, samplePlaybackPose } from './motion.js';
 
 const speciesViews = { deer: 'chital', tiger: 'tiger', crocodile: 'mugger' };
 const names = { 'Axis axis': 'chital', 'Panthera tigris tigris': 'tiger', 'Crocodylus palustris': 'mugger' };
+const orientation = new THREE.Quaternion();
+const headingRotation = new THREE.Quaternion();
+const scale = new THREE.Vector3();
 const pose = new THREE.Object3D();
 const up = new THREE.Vector3(0, 1, 0);
 const matrix = new THREE.Matrix4();
 
-function tuftGeometry() {
-  const vertices = [];
-  for (let blade = 0; blade < 9; blade++) {
-    const a = blade * 2.4,
-      dx = Math.cos(a),
-      dz = Math.sin(a),
-      h = 0.18 + (blade % 4) * 0.075;
-    const strip = (t, side) => [
-      dx * h * 0.6 * t * t - dz * side * 0.035 * (1 - t),
-      h * t,
-      dz * h * 0.6 * t * t + dx * side * 0.035 * (1 - t),
-    ];
-    const a0 = strip(0, -1),
-      b0 = strip(0, 1),
-      a1 = strip(0.55, -1),
-      b1 = strip(0.55, 1),
-      tip = strip(1, 0);
-    vertices.push(...a0, ...b0, ...a1, ...b0, ...b1, ...a1, ...a1, ...b1, ...tip);
-  }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-  geometry.computeVertexNormals();
-  const colors = [];
-  for (let i = 0; i < vertices.length; i += 3) {
-    const height = THREE.MathUtils.clamp(vertices[i + 1] / 0.38, 0, 1);
-    colors.push(0.49 + 0.63 * height, 0.56 + 0.53 * height, 0.4 + 0.46 * height);
-  }
-  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  return geometry;
-}
-
-function createLandscape(scene, state, tree, soil) {
+function createLandscape(scene, state, tree, soil, tuftMap) {
   const { width: w, height: h, terrain } = state;
   const n = w * h;
   const wind = breeze(state.seed);
@@ -154,73 +127,39 @@ function createLandscape(scene, state, tree, soil) {
   group.add(ground, cut, river.mesh);
   scene.add(group);
 
-  const clumps = [];
+  const meadowFloor = meadow(group, state, heightAt, map, wind, scene.userData.cloudShadow, tuftMap);
   const groves = [];
   for (let y = 1; y < h - 1; y++)
     for (let x = 1; x < w - 1; x++) {
       const i = y * w + x;
       if (!distance[i]) continue;
       const noise = Math.abs(Math.sin(x * 21.7 + y * 53.3) * 43758.5453) % 1;
-      if (noise < 0.27)
-        clumps.push({ i, x: x + 0.5 - w / 2, z: y + 0.5 - h / 2, y: surface(x, y), angle: noise * 33 });
       if (distance[i] > 2 && distance[i] < 16 && noise > 0.995 && Math.sin(x * 0.11 + y * 0.09) > 0.2) {
         groves.push({
           x: x + 0.5 - w / 2,
           y: surface(x, y),
           z: y + 0.5 - h / 2,
-          angle: noise * 126,
+          cell: i,
+          bank: 1 - distance[i] / 16,
+          size: 0.35 + 0.62 * (Math.abs(Math.sin(i * 39.7)) % 1),
+          angle: i * 2.4,
           scale: 0.78 + (noise % 0.41),
         });
       }
     }
-  const grass = new THREE.InstancedMesh(
-    tuftGeometry(),
-    bendGrass(
-      new THREE.MeshLambertMaterial({ color: 0x89995b, vertexColors: true, side: THREE.DoubleSide }),
-      wind,
-      true,
-    ),
-    clumps.length,
+  const grove = salGrove(group, tree, groves, scene.userData.cloudShadow);
+  let lookout = groves.reduce(
+    (best, p) => (!best || p.x * p.x + p.z * p.z < best.x * best.x + best.z * best.z ? p : best),
+    null,
   );
-  grass.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  receiveDaylight(grass.material, scene.userData.cloudShadow);
-  grass.frustumCulled = false;
-  grass.castShadow = grass.receiveShadow = true;
-  grass.customDepthMaterial = bendGrass(
-    new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, side: THREE.DoubleSide }),
-    wind,
-    true,
-  );
-  group.add(grass);
-  if (tree && groves.length) {
-    const inverse = tree.matrixWorld.clone().invert();
-    tree.traverse((part) => {
-      if (!part.isMesh) return;
-      const trees = new THREE.InstancedMesh(
-        part.geometry,
-        receiveDaylight(part.material, scene.userData.cloudShadow),
-        groves.length,
-      );
-      const local = new THREE.Matrix4().multiplyMatrices(inverse, part.matrixWorld);
-      groves.forEach((p, i) => {
-        pose.position.set(p.x, p.y, p.z);
-        pose.rotation.set(0, p.angle, 0);
-        pose.scale.setScalar(p.scale);
-        pose.updateMatrix();
-        trees.setMatrixAt(i, matrix.multiplyMatrices(pose.matrix, local));
-      });
-      trees.castShadow = trees.receiveShadow = true;
-      group.add(trees);
-    });
+  if (!lookout) {
+    const cell = terrain.findIndex((value) => value !== 1);
+    if (cell >= 0) {
+      const x = cell % w,
+        z = Math.floor(cell / w);
+      lookout = { x: x + 0.5 - w / 2, y: surface(x, z), z: z + 0.5 - h / 2 };
+    }
   }
-  clumps.forEach((p, i) => {
-    pose.position.set(p.x, p.y, p.z);
-    pose.rotation.set(0, p.angle, 0);
-    pose.scale.setScalar(1);
-    pose.updateMatrix();
-    grass.setMatrixAt(i, pose.matrix);
-  });
-  const baseMatrices = grass.instanceMatrix.array.slice();
   function update(s) {
     river.configure(s.water);
     const wet = Math.min(1, s.rainfall / 4);
@@ -245,20 +184,10 @@ function createLandscape(scene, state, tree, soil) {
         pixels[j + 1] = 168 - 25 * g + 3 * wet + 13 * bank;
         pixels[j + 2] = 115 - 31 * g + 12 * wet + 22 * bank;
       }
-      pixels[j + 3] = 255;
+      pixels[j + 3] = terrain[i] === 1 ? 0 : Math.round(255 * g);
     }
     map.needsUpdate = true;
-    const out = grass.instanceMatrix.array;
-    clumps.forEach((p, i) => {
-      const scale = Math.min(1.65, Math.max(0.015, s.grass[p.i] / 36)),
-        j = i * 16;
-      out[j] = baseMatrices[j] * scale;
-      out[j + 2] = baseMatrices[j + 2] * scale;
-      out[j + 5] = scale;
-      out[j + 8] = baseMatrices[j + 8] * scale;
-      out[j + 10] = baseMatrices[j + 10] * scale;
-    });
-    grass.instanceMatrix.needsUpdate = true;
+    grove.update(s);
   }
   geometry.computeBoundingBox();
   const rayStart = new THREE.Vector3(),
@@ -298,23 +227,20 @@ function createLandscape(scene, state, tree, soil) {
     group.traverse((o) => {
       if (o.isInstancedMesh) o.dispose();
     });
-    for (const m of [ground, cut, grass]) {
+    for (const m of [ground, cut]) {
       m.material.dispose();
       m.geometry.dispose();
     }
-    grass.customDepthMaterial.dispose();
+    meadowFloor.dispose();
+    grove.dispose();
     map.dispose();
     river.dispose();
   }
-  return { ground, surface, heightAt, update, dispose, pick, river, wind };
+  return { ground, surface, heightAt, update, dispose, pick, river, wind, meadowFloor, lookout };
 }
 
 // Models share geometry and materials. Each snapshot animal keeps its own position, heading and age.
-function animalBatch(scene, root, kind, detailed, cloud) {
-  const parts = [];
-  root.traverse((part) => {
-    if (part.isMesh) parts.push(part);
-  });
+function animalBatch(scene, parts, kind, detailed, cloud) {
   let capacity = 0,
     meshes = [],
     weights,
@@ -355,7 +281,8 @@ function animalBatch(scene, root, kind, detailed, cloud) {
           mat = part.userData.poseMaterial;
         }
         const m = new THREE.InstancedMesh(g, receiveDaylight(mat, cloud), capacity);
-        m.castShadow = m.receiveShadow = true;
+        m.receiveShadow = true;
+        m.castShadow = !part.material.name.startsWith('Guard hair');
         if (part.userData.poseDepth) m.customDepthMaterial = part.userData.poseDepth;
         m.frustumCulled = false;
         m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -365,12 +292,7 @@ function animalBatch(scene, root, kind, detailed, cloud) {
     }
     for (let i = 0; i < visible.length; i++) {
       const a = visible[i];
-      pose.position.copy(a.position);
-      pose.quaternion.setFromUnitVectors(up, a.normal);
-      pose.rotateY(a.facing);
-      pose.scale.setScalar(a.size);
-      pose.updateMatrix();
-      for (const mesh of meshes) mesh.setMatrixAt(i, pose.matrix);
+      for (const mesh of meshes) mesh.setMatrixAt(i, a.bodyMatrix);
       weights.setXYZW(i, ...a.weights);
       phases.setX(i, a.phase);
     }
@@ -384,7 +306,7 @@ function animalBatch(scene, root, kind, detailed, cloud) {
   };
 }
 
-export function createEcosystem(scene, library, soil) {
+export function createEcosystem(scene, library, soil, tuftMap = null) {
   let tree;
   const batches = {},
     fine = {},
@@ -396,7 +318,23 @@ export function createEcosystem(scene, library, soil) {
       const key = names[node.userData.scientificName];
       if (key) {
         const kind = /doe/i.test(node.name) ? 'doe' : key;
-        target[kind] = animalBatch(container, node, kind, target !== batches, scene.userData.cloudShadow);
+        const skin = [],
+          hair = [];
+        node.traverse((part) => {
+          if (part.isMesh) (part.material.name.startsWith('Guard hair') ? hair : skin).push(part);
+        });
+        const body = animalBatch(container, skin, kind, target !== batches, scene.userData.cloudShadow);
+        if (hair.length) {
+          const groom = animalBatch(container, hair, kind, true, scene.userData.cloudShadow);
+          const visible = [];
+          target[kind] = (animals, warm, camera) => {
+            body(animals, warm);
+            visible.length = 0;
+            for (const a of animals)
+              if (camera.position.distanceToSquared(a.position) < (9 * a.size) ** 2) visible.push(a);
+            groom(visible, warm);
+          };
+        } else target[kind] = body;
         close[kind] ??= [];
         far[kind] ??= [];
       }
@@ -446,7 +384,7 @@ export function createEcosystem(scene, library, soil) {
       s.tick === 0;
     if (reset) {
       landscape?.dispose();
-      landscape = createLandscape(scene, s, tree, soil);
+      landscape = createLandscape(scene, s, tree, soil, tuftMap);
       actors.clear();
     }
     // Slight playout slack at 1× absorbs jitter without predicting another cell.
@@ -481,6 +419,9 @@ export function createEcosystem(scene, library, soil) {
       const actor = {
         action: act.name,
         normal: new THREE.Vector3(0, 1, 0),
+        bodyMatrix: previous?.bodyMatrix ?? new THREE.Matrix4(),
+        brushX: previous?.brushX ?? to.x,
+        brushZ: previous?.brushZ ?? to.z,
         wakeAt: old?.wakeAt ?? -Infinity,
         wakeX: old?.wakeX ?? to.x,
         wakeZ: old?.wakeZ ?? to.z,
@@ -563,12 +504,9 @@ export function createEcosystem(scene, library, soil) {
     landscape.river.frame(dt, reduceMotion, last.rainfall);
     camera.updateMatrixWorld();
     frustum.setFromProjectionMatrix(matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
-    const t =
-      !duration ? 1 : THREE.MathUtils.clamp(((freezeAt ?? now) - started) / duration, 0, 1);
-    const settle =
-      streaming
-        ? 1 - THREE.MathUtils.smoothstep((freezeAt ?? now) - started - duration, 0, 160)
-        : 1;
+    landscape.meadowFloor.frame(camera, frustum);
+    const t = !duration ? 1 : THREE.MathUtils.clamp(((freezeAt ?? now) - started) / duration, 0, 1);
+    const settle = streaming ? 1 - THREE.MathUtils.smoothstep((freezeAt ?? now) - started - duration, 0, 160) : 1;
     let shadowCount = 0;
 
     for (const [kind, draw] of Object.entries(batches)) {
@@ -587,6 +525,23 @@ export function createEcosystem(scene, library, soil) {
             a.position.y = level - (a.view === 'mugger' ? 0.42 : 0.87) * a.size;
             a.normal.copy(up);
           }
+        }
+        const dx = a.position.x - a.brushX,
+          dz = a.position.z - a.brushZ;
+        if (dx * dx + dz * dz > 0.045 || reduceMotion) {
+          if (!reduceMotion && a.action !== 'swim' && freezeAt === null) {
+            const steps = Math.ceil(Math.hypot(dx, dz) / 0.4);
+            for (let k = 1; k <= steps; k++)
+              landscape.meadowFloor.tracks.brush(
+                a.brushX + (dx * k) / steps,
+                a.brushZ + (dz * k) / steps,
+                dx,
+                dz,
+                a.size,
+              );
+          }
+          a.brushX = a.position.x;
+          a.brushZ = a.position.z;
         }
         const sip = a.action === 'drink',
           travelled = (a.position.x - a.wakeX) ** 2 + (a.position.z - a.wakeZ) ** 2;
@@ -610,22 +565,21 @@ export function createEcosystem(scene, library, soil) {
         }
         bounds.center.copy(a.position);
         if (!frustum.intersectsSphere(bounds)) continue;
+        orientation.setFromUnitVectors(up, a.normal).multiply(headingRotation.setFromAxisAngle(up, a.facing));
+        a.bodyMatrix.compose(a.position, orientation, scale.setScalar(a.size));
         if (a.action !== 'swim') {
-          pose.position.copy(a.position);
-          pose.position.y += 0.027;
-          pose.quaternion.setFromUnitVectors(up, a.normal);
-          pose.rotateY(a.facing);
-          pose.scale.set((kind === 'mugger' ? 3.2 : 2.15) * a.size, 1, 0.78 * a.size);
-          pose.updateMatrix();
-          shadows.setMatrixAt(shadowCount++, pose.matrix);
+          matrix.copy(a.bodyMatrix).scale(scale.set(kind === 'mugger' ? 3.2 : 2.15, 1, 0.78));
+          matrix.elements[13] += 0.027;
+          shadows.setMatrixAt(shadowCount++, matrix);
         }
         (fine[kind] && camera.position.distanceToSquared(a.position) < (25 * a.size) ** 2 ? near : distant).push(
           a,
         );
       }
       draw(distant);
-      fine[kind]?.(near);
+      fine[kind]?.(near, false, camera);
     }
+    if (!reduceMotion) landscape.meadowFloor.tracks.advance(dt);
     if (shadows) {
       shadows.count = shadowCount;
       shadows.instanceMatrix.needsUpdate = true;
@@ -656,6 +610,9 @@ export function createEcosystem(scene, library, soil) {
     },
     get wind() {
       return landscape.wind;
+    },
+    get lookout() {
+      return landscape.lookout;
     },
     get ground() {
       return landscape.ground;

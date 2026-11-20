@@ -11,6 +11,7 @@ export function breeze(seed = 0) {
   const phase = (Number(BigInt(seed) % 997n) / 997) * Math.PI * 2;
   return {
     uniforms,
+    strength: 1,
     advance(dt, reduced, rain = 0) {
       if (reduced) {
         uniforms.windGust.value = 0;
@@ -21,34 +22,80 @@ export function breeze(seed = 0) {
       uniforms.windDir.value.set(Math.cos(angle), Math.sin(angle));
       uniforms.windTime.value = time;
       uniforms.windGust.value =
-        0.76 + 0.28 * Math.sin(time * 0.72 + phase) + 0.12 * Math.sin(time * 1.42) + Math.min(0.3, rain * 0.045);
+        this.strength *
+        (0.76 + 0.28 * Math.sin(time * 0.72 + phase) + 0.12 * Math.sin(time * 1.42) + Math.min(0.3, rain * 0.045));
     },
   };
 }
 
-export function bendGrass(material, wind, instanced) {
+export function bendGrass(material, wind, field, detail = false) {
   const result = material.clone();
-  result.customProgramCacheKey = () => (instanced ? 'field-wind' : 'herbarium-wind');
+  result.customProgramCacheKey = () => (field ? 'meadow-wind-' + detail : 'herbarium-wind');
   result.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, wind.uniforms);
+    Object.assign(shader.uniforms, wind.uniforms, field || {});
+    // A thin blade transmits skylight through both faces.
+    if (field && !material.isMeshDepthMaterial)
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <normal_fragment_begin>',
+        THREE.ShaderChunk.normal_fragment_begin.replace('normal *= faceDirection;', ''),
+      );
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
         `#include <common>
-      uniform float windTime,windGust;uniform vec2 windDir;
-      ${instanced ? '' : 'attribute float bladeRise;'}`,
+        uniform float windTime,windGust; uniform vec2 windDir;
+        ${field ? '#define MEADOW' : ''}
+        ${detail ? '#define CLOSE_GRASS' : ''}
+        #ifdef MEADOW
+          attribute vec3 grassRoot;
+          uniform sampler2D grassMap,pressMap; uniform vec2 fieldSize; uniform vec3 detailEye;
+        #else
+          attribute float bladeRise;
+        #endif`,
       )
       .replace(
         '#include <project_vertex>',
         `
-        ${instanced ? 'vec4 wp=modelMatrix*instanceMatrix*vec4(transformed,1.);float h=max(0.,position.y*length(instanceMatrix[1].xyz));' : 'vec4 wp=modelMatrix*vec4(transformed,1.);float h=bladeRise;'}
+        #ifdef MEADOW
+          vec2 cell=instanceMatrix[3].xz+fieldSize*.5;
+          float range=distance(instanceMatrix[3].xyz,detailEye);
+          float mass=texelFetch(grassMap,ivec2(cell),0).a;
+          float cover=mix(mass,sqrt(mass),.30);
+          float site=fract(dot(cell,vec2(3.173,5.837)));
+          float rank=grassRoot.z<0. ? site : mix(grassRoot.z,site,.58);
+          float start=.88*rank;
+          float sprout=smoothstep(start,start+.12,cover);
+          #ifdef CLOSE_GRASS
+            sprout*=1.-smoothstep(8.,12.,range);
+          #endif
+          float spread=mix(.80,1.94,cover*cover);
+          #ifndef CLOSE_GRASS
+            spread*=1.+1.05*smoothstep(40.,115.,range);
+          #endif
+          vec3 grown=transformed;
+          grown.xz=grassRoot.xy+(transformed.xz-grassRoot.xy)*(sprout*spread);
+          grown.y*=sprout*mix(.58,1.38,cover);
+          #ifndef CLOSE_GRASS
+            grown.y*=mix(.40,1.,smoothstep(6.,13.,range));
+          #endif
+          vec4 wp=modelMatrix*instanceMatrix*vec4(grown,1.);
+          float h=max(0.,grown.y*length(instanceMatrix[1].xyz));
+          vec2 press=(texture2D(pressMap,cell/fieldSize).rg*255.-128.)/127.;
+          float lean=h*h/(.045+h);
+          wp.xz+=press*lean*1.12;
+          wp.y-=min(1.,length(press))*lean*.86;
+        #else
+          vec4 wp=modelMatrix*vec4(transformed,1.);
+          float h=bladeRise;
+        #endif
         float phase=dot(wp.xz,windDir);
         float gust=.63+.30*sin(phase*1.24-windTime*3.1)+.16*sin(phase*2.6+wp.z*.8-windTime*4.7);
         float bend=h*h/(.19+h)*windGust;
         wp.xz+=bend*(windDir*gust+vec2(-windDir.y,windDir.x)*.11*sin(wp.x*2.7-windTime*3.));
         wp.y-=bend*.16*gust*gust;
         vec4 mvPosition=viewMatrix*wp;gl_Position=projectionMatrix*mvPosition;`,
-      );
+      )
+      .replace('#include <worldpos_vertex>', 'vec4 worldPosition=wp;');
   };
   return result;
 }

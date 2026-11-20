@@ -108,25 +108,43 @@ void animalPose(inout vec3 p,inout vec3 n) {
     }
   #else
     float hip=ANIMAL==1?.98:1.02;
-    float foot=leg?clamp((hip-p.y)/hip,0.,1.):0.;
+    float legWeight=_part<=1.?max(0.,_part):0.;
+    float neckWeight=head||tongue||lowerJaw?1.:clamp(-_part,0.,1.);
+    float foot=legWeight*clamp((hip-p.y)/hip,0.,1.);
     float side=step(0.,p.z);
     float limbPhase=phase+3.14159*side+front*1.43;
     vec2 stepOffset=footfall(limbPhase,1.4,ANIMAL==1?.135:.15);
     p.x+=foot*(walk*stepOffset.x-swim*.32*cos(limbPhase));
     p.y+=foot*(walk*stepOffset.y+swim*(.17+.22*sin(limbPhase)));
     p.z+=foot*sign(p.z)*lower*front*.13;
-    float crouch=smoothstep(-.8,.48,p.x)*lower*(ANIMAL==1?.54:.37);
-    if(head||tongue||lowerJaw){
+    float drop=ANIMAL==1?.43:.315;
+    float crouch=mix(ANIMAL==1?.36:0.,1.,smoothstep(-.8,.48,p.x))*lower*drop;
+    float elbow=smoothstep(.20,.46,p.y)*(1.-smoothstep(.46,.74,p.y));
+    p.x+=front*legWeight*lower*((ANIMAL==1?.32:.11)*foot-(ANIMAL==1?.20:.07)*elbow);
+    if(neckWeight>0. && lower+swim>0.){
       if(lowerJaw){
         vec2 hinge=ANIMAL==1?vec2(.93,.94):vec2(.77,1.49);
         mat2 bite=turn(-(.08+.08*wave)*(feed+drink));
         p.xy=hinge+bite*(p.xy-hinge);n.xy=bite*n.xy;
       }
       vec2 pivot=ANIMAL==1?vec2(.62,.957):vec2(.42,1.035);
-      float angle=-(ANIMAL==1?.91:2.16)*lower+.055*feed*wave+.020*drink*wave+.16*swim;
+      vec2 axis=ANIMAL==1?vec2(.996,.087):vec2(.45,.893);
+      float lengthOfBend=ANIMAL==1?.32:.28;
+      float angle=-(ANIMAL==1?1.02:2.05)*lower+.055*feed*wave+.020*drink*wave+.16*swim;
       if(tongue){p.x+=.045*drink*(1.+wave);p.y-=.080*drink*(1.+wave);}
-      mat2 r=turn(angle);p.xy=pivot+r*(p.xy-pivot);n.xy=r*n.xy;
-      crouch=lower*(ANIMAL==1?.54:.37);
+      if(ANIMAL==0){
+        float pollWeight=smoothstep(.27,.46,dot(p.xy-pivot,axis));
+        mat2 poll=turn(.85*lower*pollWeight);
+        vec2 hinge=vec2(.64,1.49); p.xy=hinge+poll*(p.xy-hinge); n.xy=poll*n.xy;
+      }
+      // Integrate the centreline arc before rotating each cross-section; its length stays constant.
+      float t=neckWeight, bend=angle*t;
+      vec2 base=pivot-.5*lengthOfBend*axis;
+      vec2 arc=t*axis;
+      mat2 r=turn(bend);
+      if(abs(angle)>.001) arc=(r[0].y*axis+(1.-r[0].x)*vec2(-axis.y,axis.x))/angle;
+      p.xy=base+lengthOfBend*arc+r*(p.xy-base-lengthOfBend*t*axis); n.xy=r*n.xy;
+      crouch=mix(crouch,lower*drop,neckWeight);
     }
     p.y-=crouch*(1.-foot);
     p.y+=.024*walk*cos(phase*2.)*(1.-foot);

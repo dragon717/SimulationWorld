@@ -8,15 +8,16 @@ import { animateOriginal } from './environment.js';
 import { actionNames } from './motion.js';
 import { connectSimulation, snapshot } from './simulation.js';
 
-export async function openHabitat() {
+export async function openHabitat(firstState) {
   const viewport = document.querySelector('#viewport');
   const buttons = [...document.querySelectorAll('button[data-view]')];
   const simulated = new URLSearchParams(location.search).get('view') !== 'habitat';
   const loader = new GLTFLoader();
   const loading = Promise.all([
     loader.loadAsync(simulated ? './assets/habitat-map.glb' : './assets/rapti-floodplain.glb'),
-    simulated ? snapshot() : null,
+    simulated ? (firstState ?? snapshot()) : null,
     new THREE.TextureLoader().loadAsync('./textures/floodplain-ground.webp'),
+    simulated ? new THREE.TextureLoader().loadAsync('./textures/meadow-clump.webp').catch(() => null) : null,
   ]);
   const renderer = new THREE.WebGLRenderer({
     alpha: true,
@@ -30,11 +31,12 @@ export async function openHabitat() {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   const scene = new THREE.Scene();
   renderer.setClearColor(0x101c20, 0);
-  const [gltf, initial, soil] = await loading;
+  const [gltf, initial, soil, tuftMap] = await loading;
+  if (tuftMap) tuftMap.colorSpace = THREE.SRGBColorSpace;
   soil.wrapS = soil.wrapT = THREE.RepeatWrapping;
   soil.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
   const light = daylight(scene, initial?.width ?? 20, initial?.height ?? 15, simulated);
-  const live = simulated ? createEcosystem(scene, gltf.scene, soil) : null;
+  const live = simulated ? createEcosystem(scene, gltf.scene, soil, tuftMap) : null;
   if (!live) {
     scene.add(gltf.scene);
     gltf.scene.traverse((root) => {
@@ -60,7 +62,7 @@ export async function openHabitat() {
   }
   gltf.scene.traverse((node) => {
     if (node.isMesh) {
-      node.castShadow = node !== original?.river.mesh;
+      node.castShadow = node !== original?.river.mesh && !node.material.name.startsWith('Guard hair');
       node.receiveShadow = true;
       if (original && node.material.isMeshStandardMaterial) receiveDaylight(node.material, light.cloud);
     }
@@ -155,6 +157,12 @@ export async function openHabitat() {
             );
           }
       camera.position.copy(controls.target).addScaledVector(direction, fit * 1.09);
+    } else if (view === 'meadow' && live) {
+      followedId = undefined;
+      const site = live.lookout;
+      if (!site) return choose(home);
+      controls.target.set(site.x + 0.5, site.y + 1.4 * (site.size ?? 0.5), site.z + 0.5);
+      camera.position.copy(controls.target).add(new THREE.Vector3(3.9, 1.55, 6.8).multiplyScalar(1 / aspect));
     } else if (live) {
       const a = live.focus(view, followedId);
       if (!a) return choose(home);
@@ -232,10 +240,15 @@ export async function openHabitat() {
   if (live) {
     document.querySelector('#simulation').hidden = false;
     board = monitor();
+    const windControl = document.querySelector('#grass-wind');
+    windControl.onchange = () => {
+      live.wind.strength = Number(windControl.value);
+    };
     connectSimulation(
       initial,
       (state, interval, continuous) => {
         live.update(state, interval, continuous);
+        live.wind.strength = Number(windControl.value);
         if (!prior || state.seed !== prior.seed || state.tick <= prior.tick) light.invalidate();
         Object.assign(live.river.mesh.material.uniforms, light.reflection);
         receiveDaylight(live.river.mesh.material, light.cloud);
@@ -244,13 +257,13 @@ export async function openHabitat() {
         if (!prior || now - lastMonitor >= 100 || interval === 0 || state.tick <= prior.tick) {
           clearTimeout(monitorTimer);
           monitorTimer = null;
-          board.update(state);
+          board.update(state, live.lookout);
           lastMonitor = now;
         } else if (!monitorTimer) {
           monitorTimer = setTimeout(
             () => {
               monitorTimer = null;
-              board.update(prior);
+              board.update(prior, live.lookout);
               lastMonitor = performance.now();
             },
             100 - (now - lastMonitor),
@@ -307,7 +320,11 @@ export async function openHabitat() {
   });
   for (const b of buttons) {
     if (!live || b.dataset.view === 'habitat') b.disabled = false;
-    b.addEventListener('click', () => choose(b.dataset.view));
+    b.addEventListener('click', () => {
+      choose(b.dataset.view);
+      if (b.dataset.view === 'meadow' && matchMedia('(max-width:720px)').matches)
+        viewport.scrollIntoView({ block: 'nearest' });
+    });
   }
   viewport.prepend(canvas);
   viewport.querySelector('img').hidden = true;
@@ -332,7 +349,7 @@ export async function openHabitat() {
     if (live) {
       live.frame(now, watcher.matches, camera);
       footprint(now);
-      if (active && active !== home) {
+      if (active && active !== home && active !== 'meadow') {
         const actor = live.focus(active, followedId);
         if (!actor) choose(home);
         else if (actor.id !== followedId) choose(active);
@@ -367,7 +384,8 @@ export async function openHabitat() {
         (Math.round((a * 4) / Math.PI) + 8) % 8
       ];
       windLabel.hidden = watcher.matches;
-      windLabel.textContent = (u.windGust.value > 1 ? '阵风' : '微风') + ' · 向' + direction;
+      windLabel.textContent =
+        u.windGust.value === 0 ? '静风' : (u.windGust.value > 1 ? '阵风' : '微风') + ' · 向' + direction;
     }
     const displayDistance = camera.position.distanceTo(controls.target) / w;
     const glassVisibility = THREE.MathUtils.smoothstep(displayDistance, 0.5, 1.25);

@@ -17,6 +17,9 @@ export function monitor() {
   const map = aside.querySelector('#world-map'),
     mc = map.getContext('2d');
   const field = aside.querySelector('#map-field').getContext('2d');
+  const canopy = aside.querySelector('#canopy'),
+    leafReading = aside.querySelector('#leaf-reading');
+  const meadow = aside.querySelector('[data-view="meadow"]');
   let state,
     kind = 'deer',
     image;
@@ -61,7 +64,10 @@ export function monitor() {
         chart();
       }),
   );
-  function update(s) {
+  function update(s, site) {
+    meadow.disabled = !site;
+    canopy.value = site?.leaf ?? 0;
+    leafReading.textContent = site?.leaf == null ? '无样树' : Math.round(site.leaf * 100) + '%';
     state = s;
     chart();
     document.querySelector('#grass-total').textContent = Math.round(s.grassTotal).toLocaleString();

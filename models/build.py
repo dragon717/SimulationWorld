@@ -8,6 +8,8 @@ from mathutils import Quaternion, Vector
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from forms import ROOT, material
+from coat import groom
+from pelt import bind_neck
 from fauna import chital, mugger, tiger
 from floodplain import channel, habitat, height, shore, width
 
@@ -19,6 +21,7 @@ scene.render.fps = 24
 paint = material('Mineral pigment on paper', 'pigment.jpg', vertex=True)
 water = material('River wash', 'pigment.jpg', vertex=True, roughness=.53)
 coat = {key: material(key+' · painted coat', key+'.jpg') for key in ('chital','tiger','mugger','chital-leg','tiger-leg')}
+head_coat = {key: material(key+' · facial coat', key+'-head.jpg', vertex=True) for key in ('chital','tiger')}
 out = ROOT/'assets'
 previews = ROOT/'previews'
 for folder in (out, previews):
@@ -82,10 +85,14 @@ paper.use_nodes=True
 paper.node_tree.nodes.get('Principled BSDF').inputs['Base Color'].default_value=(.88,.817,.665,1)
 stage.data.materials.append(paper)
 
-stag=chital('Chital stag',paint,coat['chital'],coat['chital-leg'])
-cat=tiger(paint,coat['tiger'],coat['tiger-leg'])
+stag=chital('Chital stag',paint,coat['chital'],coat['chital-leg'],head_coat['chital'])
+cat=tiger(paint,coat['tiger'],coat['tiger-leg'],head_coat['tiger'])
 croc=mugger(paint,coat['mugger'])
-doe=chital('Chital doe',paint,coat['chital'],coat['chital-leg'],antlers=False)
+doe=chital('Chital doe',paint,coat['chital'],coat['chital-leg'],head_coat['chital'],antlers=False)
+guard_hair = material('Guard hair · root pigment', vertex=True, roughness=.85)
+for mammal in (stag, doe, cat):
+    groom(mammal, guard_hair)
+    bind_neck(mammal)
 animals=[stag,cat,croc,doe]
 for animal in animals:
     animal['habitat']='Chitwan-inspired Rapti floodplain'

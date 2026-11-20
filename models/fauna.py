@@ -2,6 +2,7 @@
 import math
 from mathutils import Vector
 from forms import Form, group, sway
+from pelt import continuous_coat
 
 INK = '302c28'
 IVORY = 'f2ddaf'
@@ -37,11 +38,18 @@ def pelt_limb(skin, path, radii, offset):
     curve.append(pts[-1]); sizes.append(radii[-1])
     start=len(skin.verts); sides=18
     skin.tube(curve,sizes,'ffffff',sides)
+    distances=[0.]
+    for a,b in zip(curve,curve[1:]):
+        distances.append(distances[-1]+(b-a).length)
+    outward=1 if pts[0].y>0 else -1
     for i in range(len(curve)):
-        t=i/(len(curve)-1)
+        t=distances[i]/distances[-1]
         for j in range(sides):
-            side=.5+.5*math.sin(j*math.tau/sides)
-            skin.uvs[start+i*sides+j]=(.05+.62*side+offset, .98-.93*t)
+            index=start+i*sides+j
+            angle=math.tau*j/sides
+            # Project across the transported ring so stripe folds stay away from the outer flank.
+            u=.46+.20*offset+.41*math.cos(angle)+.10*outward*math.sin(angle)
+            skin.uvs[index]=(u,.98-.95*t)
 
 
 def skull_surface(rings, side, x, angle, lift):
@@ -51,18 +59,39 @@ def skull_surface(rings, side, x, angle, lift):
     return x,side*(w+lift)*math.sin(angle),z+(h+lift)*math.cos(angle)
 
 
-def facial_stripe(form, rings, side, path):
-    """Follow the curvature between knots so the ink stays on the cheek."""
-    samples=[]
-    for a,b in zip(path,path[1:]):
-        for t in (0,.25,.50,.75):
-            samples.append(tuple(v+(w-v)*t for v,w in zip(a,b)))
-    last=None
-    for x,angle,half in [*samples,path[-1]]:
-        pair=[form.point(skull_surface(rings,side,xx,angle,.004),INK) for xx in (x-half,x+half)]
-        if last:
-            form.face((*last,*reversed(pair)))
-        last=pair
+def fur_patch(form, first, rect):
+    """Place a soft part on a selected color region of the species' albedo."""
+    points = form.verts[first:]
+    xmin, xmax = min(p[0] for p in points), max(p[0] for p in points)
+    zmin, zmax = min(p[2] for p in points), max(p[2] for p in points)
+    u0, v0, u1, v1 = rect
+    for i, (x, _, z) in enumerate(points, first):
+        uv = form.uvs[i]
+        if uv is None:
+            uv = ((x-xmin)/max(xmax-xmin, .0001), (z-zmin)/max(zmax-zmin, .0001))
+        form.uvs[i] = (u0+(u1-u0)*uv[0], v0+(v1-v0)*uv[1])
+
+
+def orbital_coat(face, skull, side):
+    """Fade the dark eyelid into the same fur coordinates as the surrounding cheek."""
+    edge = None
+    for radius, tint, lift in ((.44,'48352d',.009),(.72,'625042',.006),(1.,'ffffff',.002)):
+        ring = []
+        for i in range(32):
+            a=math.tau*i/32
+            x=.390+radius*.055*math.cos(a)
+            theta=1.22+radius*(.154*math.sin(a)-.044*math.cos(a))
+            segment=next(j for j in range(len(skull)-1) if skull[j][0] <= x <= skull[j+1][0])
+            t=(x-skull[segment][0])/(skull[segment+1][0]-skull[segment][0])
+            uv=(.012+.976*(segment+t)/(len(skull)-1), .018+.964*(.5+.98*(.5-theta/math.pi)))
+            ring.append(face.point(skull_surface(skull,side,x,theta,lift),tint,uv))
+        if edge is None:
+            face.face(ring if side>0 else reversed(ring))
+        else:
+            for i in range(len(ring)):
+                quad=(edge[i-1],ring[i-1],ring[i],edge[i])
+                face.face(quad if side>0 else reversed(quad))
+        edge=ring
 
 
 def eye_patch(form,rings,side,x,angle,rx,ra,tint,lift):
@@ -77,13 +106,13 @@ def eye_patch(form,rings,side,x,angle,rx,ra,tint,lift):
         form.face((center,edge[i-1],edge[i]))
 
 
-def chital(label, paint, coat, leg_coat, antlers=True):
+def chital(label, paint, coat, leg_coat, head_coat, antlers=True):
     root=group(label)
     body = [(-.80,.89,.025,.07),(-.75,.91,.15,.20),(-.59,.93,.245,.30),
             (-.36,.94,.265,.318),(-.12,.95,.24,.285),(.15,.96,.235,.29),
             (.37,.965,.25,.323),(.50,1.0,.20,.30),(.57,1.04,.12,.21)]
     torso('Dappled flank',root,body,coat)
-    fur, light, hoof = 'a46a39','c39662','403b35'
+    hoof = '403b35'
     f,skin=Form(),Form()
     for s in (-1,1):
         # Slightly staggered feet show the hock and the cloven hoof in silhouette.
@@ -107,35 +136,46 @@ def chital(label, paint, coat, leg_coat, antlers=True):
     skin.finish('Spotted shoulders and legs',root,leg_coat,True)
     f.finish('Cleft hooves and tail',root,paint,True)
     pivot=group('Chital neck',root,(.42,0,1.035))
-    f=Form()
-    f.tube([(0,0,0),(.07,0,.15),(.15,0,.29),(.22,0,.42),(.25,0,.48)],
-           [(.175,.155),(.163,.14),(.129,.113),(.10,.09),(.095,.092)],fur,22)
-    f.tube([(.085,0,.045),(.18,0,.21),(.265,0,.37)], [.086,.071,.04],light)
-    f.loft([(.14,0,.49,.03,.064),(.18,0,.51,.102,.118),(.26,0,.52,.119,.135),
-            (.33,0,.505,.10,.121),(.40,0,.48,.078,.085),(.48,0,.455,.061,.055),
-            (.50,0,.45,.049,.04)],fur)
-    f.oval((.471,0,.428),(.049,.057,.037),IVORY)
-    f.oval((.494,0,.467),(.034,.061,.031),INK)
+    face, ears, jaw, features, rims = Form(), Form(), Form(), Form(), Form()
+    face.tube([(0,0,0),(.07,0,.15),(.15,0,.29),(.22,0,.42),(.25,0,.48)],
+              [(.175,.155),(.163,.14),(.129,.113),(.10,.09),(.095,.092)],'ffffff',22)
+    face.tube([(.085,0,.045),(.18,0,.21),(.265,0,.37)], [.086,.071,.04],'ffffff')
+    skull=[(.14,0,.49,.03,.064),(.18,0,.51,.102,.118),(.26,0,.52,.119,.135),
+               (.33,0,.505,.10,.121),(.40,0,.48,.078,.085),(.48,0,.455,.061,.055),
+               (.50,0,.45,.049,.04)]
+    face.loft(skull,'ffffff')
+    jaw.oval((.471,0,.428),(.049,.057,.037),'ffffff')
+    fur_patch(jaw,0,(.68,.012,.98,.19))
+    features.oval((.494,0,.467),(.034,.061,.031),INK)
     for s in (-1,1):
-        ear(f,(.203,s*.073,.586),s,.227,.066,fur,'ebc395')
-        f.oval((.30,s*.103,.545),(.033,.015,.025),'bc9464')
-        f.oval((.308,s*.111,.55),(.028,.014,.018),INK)
-        f.oval((.317,s*.123,.556),(.006,.003,.005),'f4e8d4',8,4)
+        first=len(ears.verts)
+        ear(ears,(.203,s*.073,.586),s,.227,.066,'c99d78','eed4b1')
+        fur_patch(ears,first,(.63,.025,.98,.40))
+        first=len(rims.verts)
+        rims.oval((.30,s*.103,.545),(.033,.015,.025),'edd5ae')
+        fur_patch(rims,first,(.67,.10,.93,.27))
+        features.oval((.308,s*.111,.55),(.028,.014,.018),INK)
+        features.oval((.317,s*.123,.556),(.006,.003,.005),'f4e8d4',8,4)
         if antlers:
             horn='846b4e'
             path=[(.212,s*.067,.612),(.17,s*.084,.70),(.09,s*.112,.81),
                   (-.015,s*.17,.945),(-.06,s*.22,1.047),(-.035,s*.245,1.13)]
-            f.tube(path,[.032,.032,.028,.023,.015,.003],horn,10)
-            f.tube([path[1],(.226,s*.10,.79),(.24,s*.104,.866)],[.023,.014,.002],horn)
-            f.tube([path[3],(.043,s*.174,1.028),(.067,s*.177,1.084)],[.020,.011,.002],horn)
-    f.finish('Neck, muzzle, ears and crown' if antlers else 'Neck, muzzle and ears',pivot,paint,True)
+            features.tube(path,[.032,.032,.028,.023,.015,.003],horn,10)
+            features.tube([path[1],(.226,s*.10,.79),(.24,s*.104,.866)],[.023,.014,.002],horn)
+            features.tube([path[3],(.043,s*.174,1.028),(.067,s*.177,1.084)],[.020,.011,.002],horn)
+    face.finish('Neck, muzzle and cheeks',pivot,head_coat,True)
+    ears.finish('Furred ears',pivot,head_coat,True)
+    jaw.finish('Furred jaw',pivot,head_coat,True)
+    rims.finish('Furred eye rims',pivot,head_coat,True)
+    features.finish('Facial details',pivot,paint,True)
+    continuous_coat(root,body,skull,False)
     sway(pivot,1,[0,5,12,4,0] if antlers else [40,49,52,44,40])
     return root
 
 
-def tiger(paint, coat, leg_coat):
+def tiger(paint, coat, leg_coat, head_coat):
     root=group('Bengal tiger')
-    fur, dark, cream='c47c3a','322b27','f2dec1'
+    fur, dark='c47c3a','322b27'
     body=[(-1.0,.825,.06,.09),(-.90,.86,.205,.26),(-.70,.87,.295,.35),(-.45,.865,.285,.347),
           (-.18,.87,.255,.285),(.10,.88,.28,.32),(.35,.89,.32,.368),
           (.55,.90,.31,.37),(.72,.92,.235,.28),(.81,.94,.166,.19)]
@@ -157,45 +197,48 @@ def tiger(paint, coat, leg_coat):
             widths[0]=.081
             pelt_limb(skin,leg,widths,.04 if rear else .25)
             px,py,_=leg[-1]
-            f.oval((px+.048,py,.078),(.134,.09,.072),fur)
+            f.oval((px+.048,py,.078),(.134,.09,.072),'ffffff')
             for toe in (-1,0,1):
-                f.oval((px+.135-abs(toe)*.012,py+toe*.048,.052),(.058,.032,.042),'d39a61')
+                f.oval((px+.135-abs(toe)*.012,py+toe*.048,.052),(.058,.032,.042),'ffffff')
     skin.finish('Striped shoulders and hocks',root,leg_coat,True)
-    f.finish('Paws',root,paint,True)
+    f.finish('Paws',root,leg_coat,True)
     head=group('Tiger head',root,(.62,0,.957))
-    f=Form()
+    face, ears, jaw, features, rims = Form(), Form(), Form(), Form(), Form()
     skull=[(-.06,0,-.01,.11,.13),(.01,0,.015,.215,.209),(.15,0,.065,.247,.23),
-            (.26,0,.082,.26,.226),(.37,0,.071,.23,.198),(.44,0,.045,.174,.141),
-            (.51,0,.017,.09,.086)]
-    f.loft(skull,fur,48)
-    f.oval((.409,0,-.054),(.144,.143,.093),cream)
+           (.26,0,.082,.26,.226),(.37,0,.071,.23,.198),(.44,0,.045,.174,.141),
+           (.51,0,.017,.09,.086)]
+    face.loft(skull,'ffffff',48)
+    jaw.oval((.409,0,-.054),(.144,.143,.093),'ffffff')
+    fur_patch(jaw,0,(.71,.012,.98,.16))
     for s in (-1,1):
-        f.oval((.14,s*.158,.244),(.078,.076,.099),dark)
-        f.oval((.178,s*.19,.253),(.055,.046,.067),'ba9173')
-        f.oval((.08,s*.169,.267),(.018,.039,.037),cream)
-        f.tube([(.20,s*.195,.05),(.213,s*.245,-.015),(.175,s*.249,-.097)],
-               [.078,.067,.012],'d6b28a')
-        lines=[
-            [(.185,.05,.003),(.194,.39,.016),(.222,.73,.018),(.19,1.11,.011),(.162,1.40,.002)],
-            [(.263,.01,.002),(.286,.28,.012),(.294,.55,.016),(.28,.88,.011),(.253,1.19,.002)],
-            [(.32,.16,.001),(.352,.38,.009),(.375,.59,.014),(.36,.83,.009),(.34,1.05,.002)],
-            [(.107,.84,.001),(.125,1.11,.016),(.105,1.40,.018),(.076,1.69,.009),(.06,1.86,.001)],
-            [(.319,1.48,.003),(.302,1.69,.014),(.269,1.89,.017),(.232,2.0,.002)]]
-        for stripe in lines:
-            facial_stripe(f,skull,s,stripe)
-        eye_patch(f,skull,s,.385,1.07,.057,.094,'deba85',.007)
-        eye_patch(f,skull,s,.390,1.22,.046,.124,dark,.010)
-        eye_patch(f,skull,s,.393,1.22,.024,.091,'bc893f',.014)
-        eye_patch(f,skull,s,.398,1.22,.012,.073,INK,.018)
-        eye_patch(f,skull,s,.403,1.19,.0035,.020,'f5e2b8',.021)
-        f.oval((.483,s*.082,.003),(.096,.093,.062),cream)
+        first=len(ears.verts)
+        ears.oval((.14,s*.158,.244),(.078,.076,.099),'403831')
+        ears.oval((.178,s*.19,.253),(.055,.046,.067),'c59c7f')
+        ears.oval((.08,s*.169,.267),(.018,.039,.037),'fff4e6')
+        fur_patch(ears,first,(.74,.015,.98,.21))
+        face.tube([(.20,s*.195,.05),(.213,s*.245,-.015),(.175,s*.249,-.097)],
+                  [.078,.067,.012],'fff1db')
+        orbital_coat(rims,skull,s)
+        eye_patch(features,skull,s,.393,1.22,.024,.091,'bc893f',.014)
+        eye_patch(features,skull,s,.398,1.22,.012,.073,INK,.018)
+        eye_patch(features,skull,s,.403,1.19,.0035,.020,'f5e2b8',.021)
+        face.oval((.483,s*.082,.003),(.096,.093,.062),'ffffff')
         for i in range(8):
             dx=(i%4-1.3)*.018; dz=(i//4-.4)*.019
             py=.082+.093*math.sqrt(1-(dx/.096)**2-(dz/.062)**2)
-            f.oval((.483+dx,s*py,.003+dz),(.005,.003,.004),dark,8,4)
-        f.tube([(.477,s*.032,.084),(.429,s*.072,.121),(.396,s*.109,.153)],[.006,.013,.004],dark)
-    f.oval((.536,0,.05),(.060,.080,.045),'704b40')
-    f.finish('Masked face, whisker pads and ears',head,paint,True)
+            base=Vector((.483+dx,s*py,.003+dz))
+            features.oval(base,(.005,.003,.004),dark,8,4)
+            reach=Vector((.018+dx*1.8,s*(.13+.012*(i%4)),dz*2-.010))
+            features.tube([base,base+reach*.52+Vector((.014,0,.006)),base+reach],
+                          [.0018,.0011,.00025],'d6c7a6',5)
+        features.tube([(.477,s*.032,.084),(.429,s*.072,.121),(.396,s*.109,.153)],[.006,.013,.004],dark)
+    features.oval((.536,0,.05),(.060,.080,.045),'704b40')
+    face.finish('Masked face and whisker pads',head,head_coat,True)
+    ears.finish('Furred ears',head,head_coat,True)
+    jaw.finish('Furred jaw',head,head_coat,True)
+    rims.finish('Furred eye rims',head,head_coat,True)
+    features.finish('Facial details',head,paint,True)
+    continuous_coat(root,body,skull,True)
     sway(head,2,[0,-4,0,4,0])
     tail=group('Tiger tail',root,(-.89,.025,.91))
     f=Form()

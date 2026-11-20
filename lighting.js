@@ -38,7 +38,8 @@ export function daylight(scene, width, depth, live) {
   key.shadow.mapSize.set(resolution, resolution);
   key.shadow.autoUpdate = !live;
   key.shadow.needsUpdate = true;
-  let age = Infinity;
+  let age = Infinity,
+    localAge = Infinity;
   const previousEye = new THREE.Vector3(Infinity, Infinity, Infinity);
 
   key.shadow.bias = -0.000085;
@@ -120,18 +121,30 @@ export function daylight(scene, width, depth, live) {
       }
     },
     invalidate() {
+      localAge = Infinity;
       key.shadow.needsUpdate = true;
     },
     focus(camera, target) {
       if (!near) return;
-      if (age >= 1 / 45 || previousEye.distanceToSquared(camera.position) > 1) {
+      const weight = 1 - THREE.MathUtils.smoothstep(camera.position.distanceTo(target), 22, 37);
+      if (age >= (weight > 0 ? 1 / 18 : 1 / 40) || previousEye.distanceToSquared(camera.position) > 4) {
         key.shadow.needsUpdate = true;
         age = 0;
         previousEye.copy(camera.position);
       }
-      const weight = 1 - THREE.MathUtils.smoothstep(camera.position.distanceTo(target), 22, 37);
       near.shadow.intensity = weight;
-      if (weight <= 0) return;
+      if (weight <= 0) {
+        localAge = Infinity;
+        return;
+      }
+      // Stagger the two depth captures while the shadow centre still covers the subject.
+      if (
+        near.target.position.distanceToSquared(target) < 0.25 &&
+        near.shadow.map &&
+        localAge < (key.shadow.needsUpdate ? 1 / 30 : 1 / 60)
+      )
+        return;
+      localAge = 0;
       const texel = 20 / near.shadow.mapSize.x;
       snapped
         .copy(target)
@@ -143,6 +156,7 @@ export function daylight(scene, width, depth, live) {
     },
     frame(dt, wind, reduced) {
       age += Math.max(0, dt);
+      localAge += Math.max(0, dt);
       if (!reduced && wind) {
         const u = wind.uniforms,
           travel = Math.min(dt, 0.08) * u.windGust.value * 0.25;
@@ -187,10 +201,26 @@ export function caseGlass(reflection) {
 // The second light is a local depth capture with zero emitted light. Blend the two
 // occlusion measurements at its edge so the sun is applied exactly once.
 const shadowCall = (i, intensity) =>
-  `getShadow(directionalShadowMap[${i}],directionalLightShadows[${i}].shadowMapSize,${intensity},directionalLightShadows[${i}].shadowBias,directionalLightShadows[${i}].shadowRadius,vDirectionalShadowCoord[${i}])`;
+  `exhibitShadow(directionalShadowMap[${i}],directionalLightShadows[${i}].shadowMapSize,${intensity},directionalLightShadows[${i}].shadowBias,directionalLightShadows[${i}].shadowRadius,vDirectionalShadowCoord[${i}])`;
 const wideShadow = shadowCall(0, 'directionalLightShadows[0].shadowIntensity');
 const visibility = `
 uniform vec4 cloudField;
+#if defined(USE_SHADOWMAP) && NUM_DIR_LIGHT_SHADOWS > 0
+float exhibitShadow(sampler2D depths,vec2 size,float strength,float bias,float radius,vec4 coord){
+  #if NUM_DIR_LIGHT_SHADOWS > 1 && defined(SHADOWMAP_TYPE_PCF_SOFT)
+    vec3 p=coord.xyz/coord.w;
+    if(any(lessThan(p,vec3(0.))) || any(greaterThan(p,vec3(1.))))return 1.;
+    vec2 texel=1./size;
+    vec2 f=fract(p.xy*size-.5), uv=p.xy-f*texel;
+    float z=p.z+bias;
+    float a=mix(texture2DCompare(depths,uv,z),texture2DCompare(depths,uv+vec2(texel.x,0.),z),f.x);
+    float b=mix(texture2DCompare(depths,uv+vec2(0.,texel.y),z),texture2DCompare(depths,uv+texel,z),f.x);
+    return mix(1.,mix(a,b,f.y),strength);
+  #else
+    return getShadow(depths,size,strength,bias,radius,coord);
+  #endif
+}
+#endif
 float exhibitVisibility(){
 #if defined(USE_SHADOWMAP) && NUM_DIR_LIGHT_SHADOWS > 0
   if(!receiveShadow)return 1.;

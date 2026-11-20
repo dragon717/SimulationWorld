@@ -3,12 +3,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="icon" href="data:,">
-<link rel="modulepreload" href="./viewer.js">
 <title>拉普蒂河漫滩 · 玻璃生态博物馆</title>
 <link rel="stylesheet" href="museum.css">
 <script type="importmap">
 {"imports":{"three":"./node_modules/three/build/three.module.js","three/addons/":"./node_modules/three/examples/jsm/"}}
 </script>
+<link rel="modulepreload" href="./node_modules/three/build/three.core.js">
+<link rel="modulepreload" href="./node_modules/three/build/three.module.js">
+<link rel="modulepreload" href="./viewer.js">
 <header>
   <div class="mast"><p>玻璃生态博物馆</p><h1>拉普蒂河漫滩</h1><span>尼泊尔 · 奇特旺</span></div>
   <nav aria-label="观察位置">
@@ -28,6 +30,11 @@
   <h2 class="cover-title">生态监控</h2>
   <div class="notes">
   <section class="fact-sheet"><div>草总量 <strong id="grass-total"></strong></div><div>状态哈希 <code id="world-hash"></code></div></section>
+  <section class="botany">
+    <div class="section-head"><h2>河岸植被</h2><span class="series"><button disabled data-view="meadow" aria-pressed="false">近看草地</button></span></div>
+    <div class="botany-readings"><label for="canopy">样树叶量</label><meter id="canopy" min="0" max="1"></meter><span id="leaf-reading" aria-hidden="true"></span>
+    <label for="grass-wind">草地风力</label><select id="grass-wind"><option value="1">环境风</option><option value="0">无风</option><option value="1.8">强风</option></select></div>
+  </section>
   <section><div class="section-head"><h2>种群曲线</h2><div class="series" aria-label="选择曲线"><button data-series="deer" aria-pressed="true">鹿</button><button data-series="tiger" aria-pressed="false">虎</button><button data-series="crocodile" aria-pressed="false">鳄</button></div></div>
   <canvas id="history" width="280" height="72" aria-label="所选物种种群历史"></canvas><p id="range"></p></section>
   <section><h2>世界小地图</h2><div class="map-key"><div id="minimap"><canvas id="map-field"></canvas><canvas id="world-map" width="160" height="160" aria-label="河道、种群位置及当前视野"></canvas></div>
@@ -43,7 +50,9 @@
 </section>
 <footer><span>拖动环看 · 滚轮或双指缩放 · 点水面激起涟漪 · Home 归位</span><span><a id="mode" href="?view=habitat">查看原始场景</a><a href="https://github.com/dragon717/SimulationWorld/blob/main/SOURCES.md">参考来源</a></span></footer>
 <script type="module">
-  import('./viewer.js').then(m => m.openHabitat()).catch(error => {
+  const live = new URLSearchParams(location.search).get('view') !== 'habitat';
+  Promise.all([import('./viewer.js'), live ? import('./simulation.js').then(m => m.snapshot()) : null])
+    .then(([m, state]) => m.openHabitat(state)).catch(error => {
     document.querySelector('#status').textContent='场景未能打开。请用启动游戏脚本重启服务，并检查浏览器是否支持 WebGL 2。';
     console.error(error);
   });
