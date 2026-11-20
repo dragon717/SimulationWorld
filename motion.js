@@ -59,7 +59,8 @@ export function samplePlaybackPose(a, t, duration, settle, reduceMotion) {
   a.weights[0] *= settle;
   a.weights[1] *= settle;
   const strides = Math.min(travel, lead) / a.previousStride + Math.max(0, travel - lead) / a.stride;
-  a.phase = a.startPhase + (reduceMotion ? 0 : Math.PI * 2 * (strides + (edge ? 0 : restT * a.restingCycles)));
+  const idleCycles = edge || reduceMotion ? 0 : restT * a.restingCycles;
+  a.phase = a.startPhase + Math.PI * 2 * (strides + idleCycles);
 }
 
 export function animateMaterial(material, species) {

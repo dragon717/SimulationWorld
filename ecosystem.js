@@ -564,9 +564,9 @@ export function createEcosystem(scene, library, soil) {
     camera.updateMatrixWorld();
     frustum.setFromProjectionMatrix(matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
     const t =
-      reduceMotion || !duration ? 1 : THREE.MathUtils.clamp(((freezeAt ?? now) - started) / duration, 0, 1);
+      !duration ? 1 : THREE.MathUtils.clamp(((freezeAt ?? now) - started) / duration, 0, 1);
     const settle =
-      streaming && !reduceMotion
+      streaming
         ? 1 - THREE.MathUtils.smoothstep((freezeAt ?? now) - started - duration, 0, 160)
         : 1;
     let shadowCount = 0;

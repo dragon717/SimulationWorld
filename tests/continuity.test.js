@@ -34,8 +34,8 @@ function herd() {
       ms,
     );
   }
-  function render(ms) {
-    live.frame(ms, false, camera);
+  function render(ms, reduceMotion = false) {
+    live.frame(ms, reduceMotion, camera);
     return live.focus('tiger', 1);
   }
   return { accept, render, live, camera };
@@ -103,4 +103,23 @@ test('a late packet never sends an animal beyond its confirmed cell; pausing hol
   const held = h.render(2800);
   assert.deepEqual([held.phase, held.facing, ...held.weights], saved);
   assert.equal(held.position.x, -1);
+});
+
+test('reduced motion keeps interpolated 1× travel and gait while silencing idle cycles', () => {
+  const h = herd();
+  h.accept(0, 2, 4, 0);
+  const startPhase = h.render(0, true).phase;
+  h.accept(1, 3, 4, 1000);
+  const midway = h.render(1570, true);
+  assert.equal(midway.position.x, -1.5);
+  assert.ok(midway.phase > startPhase);
+  h.live.freeze(1570);
+  assert.equal(h.render(1900, true).position.x, -1.5);
+  h.accept(2, 3, 4, 2000);
+  const settled = h.render(3300, true);
+  assert.equal(settled.position.x, -1);
+  assert.equal(settled.weights[0], 0);
+  const restPhase = settled.phase;
+  h.accept(3, 3, 4, 3400);
+  assert.equal(h.render(4500, true).phase, restPhase);
 });
