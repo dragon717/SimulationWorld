@@ -7,12 +7,93 @@
 ## 看场景
 
 - **macOS 一键启动**　双击 [启动游戏.command](启动游戏.command)。需安装 Git、Go 1.22 或更新版本、Python 3 和 npm。首次启动会下载固定版本的上游源码及前端依赖，编译本机服务。生态接口就绪后自动打开浏览器。再次双击会在原端口 5184 重启，并以默认种子重新生成世界。若其他程序占用端口，脚本会显示程序名，由你决定是否结束它。
+- **Windows 一键启动**　双击 [Start-SimulationWorld.cmd](Start-SimulationWorld.cmd)。服务就绪后会打开默认浏览器。安装、局域网访问和拉取更新的命令见下方。
 - **Blender**　打开 [可编辑场景](assets/rapti-floodplain.blend)。按空格播放动物动作，按 F12 渲染全景。几何、材质、贴图、摄影机和灯光都在文件内。
 - **浏览器**　在项目目录运行下列命令，然后打开[本地预览](http://127.0.0.1:5184)。拖动环看，滚轮或双指缩放。点击地面或水面可移动观察中心，顶部按钮可近看各物种，Home 回到全景。浏览器使用 WebGL 2，首次安装依赖需要联网。
 
 ```sh
 npm ci
 npm start
+```
+
+### Windows PowerShell
+
+安装依赖后，可直接双击 `Start-SimulationWorld.cmd`。服务已运行时会打开现有地址，新启动默认使用本机地址。
+
+首次安装时，只运行缺少的工具对应的命令。安装后重新打开 PowerShell，再验证版本。Go 需要 1.22 或更新版本。
+
+```powershell
+winget install --exact --id Git.Git --source winget
+winget install --exact --id GoLang.Go --source winget
+winget install --exact --id OpenJS.NodeJS.LTS --source winget
+winget install --exact --id Python.Python.3.12 --source winget
+```
+
+```powershell
+git --version
+go version
+node --version
+npm.cmd --version
+python --version
+
+git clone https://github.com/dragon717/SimulationWorld.git
+Set-Location .\SimulationWorld
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy-windows.ps1 Start
+Start-Process 'http://127.0.0.1:5184'
+```
+
+`Start` 会初始化子模块、按需安装前端依赖、编译并在后台启动。默认地址为 [http://127.0.0.1:5184](http://127.0.0.1:5184)。`-ExecutionPolicy Bypass` 仅适用于这次启动的 PowerShell 进程。在已克隆的仓库中，直接进入项目目录即可。
+
+局域网游玩时，先查找当前网卡的 IPv4 地址，再把示例地址换成本机地址。同一局域网的设备使用脚本输出的 URL。
+
+```powershell
+Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -and $_.NetAdapter.HardwareInterface } |
+    Select-Object InterfaceAlias, @{Name='IPv4'; Expression={$_.IPv4Address.IPAddress}}
+$lanIp = '192.168.1.10'
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy-windows.ps1 Start -BindAddress $lanIp
+Start-Process "http://${lanIp}:5184"
+```
+
+日常更新、查看状态和停止。启动时若指定了自定义端口，后续命令也加上同一个 `-Port`。
+
+```powershell
+# 拉取最新提交并重新部署
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy-windows.ps1 Update
+# 也可指定局域网地址，适用于服务已停止或本机地址已变更时
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy-windows.ps1 Update -BindAddress $lanIp
+# 查看访问地址、进程、种子、步数和状态哈希
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy-windows.ps1 Status
+# 停止服务
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy-windows.ps1 Stop
+```
+
+建议在更新前暂停正在演化的页面。`Update` 执行 `git pull --ff-only` 和 `npm.cmd ci`，然后构建新版本。部署脚本会校验无会话 API 的兼容世界，哈希一致才切换。更新默认沿用当前监听地址。浏览器标签页从该页保存的最近一次已确认进度恢复世界。
+
+若其他局域网设备无法连接，且确认是 Windows 防火墙拦截，可在管理员 PowerShell 中为本机地址添加仅允许本地子网访问的规则。需要撤销时运行最后一条命令。
+
+```powershell
+$lanIp = '192.168.1.10'
+New-NetFirewallRule -Name SimulationWorld-LAN -DisplayName 'SimulationWorld LAN' `
+    -Direction Inbound -Action Allow -Protocol TCP -LocalPort 5184 `
+    -LocalAddress $lanIp -RemoteAddress LocalSubnet -Profile Private,Domain
+Remove-NetFirewallRule -Name SimulationWorld-LAN
+```
+
+手动构建和前台启动时，先确保端口空闲。按 `Ctrl+C` 停止前台服务。
+
+```powershell
+git pull --ff-only
+git submodule update --init -- upstream/SimulationWorld
+npm.cmd ci
+python -c "from backend import prepare; prepare()"
+& .\.runtime\ecosim.exe -addr 127.0.0.1:5184 -cfg .\upstream\SimulationWorld\cfg -client .\.runtime\site
+```
+
+在 Windows 上运行前端测试和后端集成测试。
+
+```powershell
+npm.cmd test
+python -m unittest discover -s tests -p test_backend.py -v
 ```
 
 ## 玻璃生态博物馆
