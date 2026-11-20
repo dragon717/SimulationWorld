@@ -96,21 +96,19 @@ CPU 数值覆盖应用的动画更新和渲染提交；GPU 数值来自有效的
 
 ## 复测
 
-启动独立的测试服务并选择相同的种子，避免推进正在使用的世界。本次测试使用 Playwright 1.64.1。它仅用于测量，运行游戏无需安装。以下示例在项目根目录执行，测试服务独占端口 5196，每组开始前重置测试世界。
+启动独立的测试服务并指定相同的种子。本次测试使用 Playwright 1.64.1。它仅用于测量，运行游戏无需安装。以下示例在项目根目录执行，测试服务独占端口 5196，每组在新的浏览器会话中从同一个初始种子开始。
 
 ```sh
 # 首个终端
 python3 -c 'from backend import prepare; prepare()'
-.runtime/ecosim -addr 127.0.0.1:5196 -cfg upstream/SimulationWorld/cfg -client .runtime/site
+.runtime/ecosim -addr 127.0.0.1:5196 -cfg upstream/SimulationWorld/cfg -client .runtime/site -seed 20260902
 
 # 第二个终端，在专用目录安装浏览器测试依赖
 bench_dir="$(mktemp -d)"
 npm install --prefix "$bench_dir" playwright@1.64.1
 "$bench_dir/node_modules/.bin/playwright" install chromium
 export NODE_PATH="$bench_dir/node_modules"
-curl -fsS -X POST 'http://127.0.0.1:5196/api/reset?seed=20260902' -o /dev/null
 BENCH_URL=http://127.0.0.1:5196 HEADED=1 SPEED=5 BENCH_SECONDS=30 node tools/benchmark.cjs
-curl -fsS -X POST 'http://127.0.0.1:5196/api/reset?seed=20260902' -o /dev/null
 BENCH_URL=http://127.0.0.1:5196 HEADED=1 SPEED=20 FOCUS=tiger BENCH_SECONDS=30 node tools/benchmark.cjs
 ```
 

@@ -10,6 +10,14 @@ const labels = {
   season_changed: '季节更替',
 };
 const $ = (id) => document.getElementById(id);
+const session = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, '0')).join('');
+const checkpointKey = 'rapti-ecosim-checkpoint';
+let checkpoint = '';
+try {
+  checkpoint = sessionStorage.getItem(checkpointKey) ?? '';
+} catch {
+  // The current page can play even when browser storage is unavailable.
+}
 
 let worker,
   sequence = 0;
@@ -21,8 +29,17 @@ export function snapshot(path = 'state') {
       const job = pending.get(data.id);
       if (!job) return;
       pending.delete(data.id);
-      if (data.error) job.reject(new Error(data.error));
-      else job.resolve(data.state);
+      if (data.error) {
+        job.reject(new Error(data.error));
+        return;
+      }
+      checkpoint = `${data.state.seed}:${data.state.tick}`;
+      try {
+        sessionStorage.setItem(checkpointKey, checkpoint);
+      } catch {
+        // Keep the checkpoint in memory if the browser blocks storage.
+      }
+      job.resolve(data.state);
     };
     worker.onerror = () => {
       for (const job of pending.values()) job.reject(new Error('无法读取生态快照'));
@@ -34,7 +51,7 @@ export function snapshot(path = 'state') {
   return new Promise((resolve, reject) => {
     const id = ++sequence;
     pending.set(id, { resolve, reject });
-    worker.postMessage({ id, path });
+    worker.postMessage({ id, path, session, checkpoint });
   });
 }
 
@@ -47,8 +64,7 @@ export function connectSimulation(initial, apply, freeze) {
   const note = $('sim-note');
   let current,
     playing = false,
-    writing = false,
-    poll = null;
+    writing = false;
   function display(s, interval = 0, continuous = false) {
     if (current && s.seed === current.seed && s.tick === current.tick && s.state_hash === current.state_hash)
       return;
@@ -93,18 +109,9 @@ export function connectSimulation(initial, apply, freeze) {
     if (writing) return;
     writing = true;
     buttons();
-    const run = async (lock) => {
-      if (!lock) {
-        note.textContent = '另一窗口正在推进同一个世界。';
-        return;
-      }
-      note.textContent = '';
-      await operation();
-    };
+    note.textContent = '';
     try {
-      await poll;
-      if (navigator.locks) await navigator.locks.request('rapti-ecosim-writer', { ifAvailable: true }, run);
-      else await run(true);
+      await operation();
     } catch (error) {
       note.textContent = error.message;
     } finally {
@@ -123,7 +130,6 @@ export function connectSimulation(initial, apply, freeze) {
     }
     held = null;
     display(state, interval, continuous);
-    if (continuous && playing) updates?.postMessage(interval);
   }
   let wake;
   speed.addEventListener('change', () => wake?.());
@@ -175,37 +181,6 @@ export function connectSimulation(initial, apply, freeze) {
       freeze();
     }
   });
-  // Read-only tabs follow the same server world; merely opening them never adds a second clock.
-  function observe(period = 0) {
-    if (writing || poll || document.hidden) return;
-    poll = snapshot()
-      .then((s) => {
-        if (held && s.seed === held.seed && s.tick === held.tick && s.state_hash === held.state_hash) return;
-        held = null;
-        display(s, period, period > 0);
-        if (note.dataset.offline) {
-          note.textContent = '';
-          delete note.dataset.offline;
-        }
-      })
-      .catch((error) => {
-        note.textContent = error.message;
-        note.dataset.offline = '1';
-      })
-      .finally(() => {
-        poll = null;
-      });
-  }
-  const updates = typeof BroadcastChannel === 'function' ? new BroadcastChannel('rapti-ecosim-ticks') : null;
-  let observedPeriod = 0;
-  if (updates)
-    updates.onmessage = ({ data }) => {
-      if ([50, 200, 1000].includes(data)) {
-        observedPeriod = data;
-        observe(data);
-      }
-    };
-  setInterval(() => observe(observedPeriod), 1500);
   display(initial);
   buttons();
   if (!document.hidden) autoplay();

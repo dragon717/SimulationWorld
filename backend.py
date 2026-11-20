@@ -31,7 +31,7 @@ def prepare():
             shutil.copy2(source, target)
         else:
             target.symlink_to(source, target_is_directory=source.is_dir())
-    subprocess.run(["go", "build", "-o", str(BINARY), "./cmd/serve"], cwd=UPSTREAM, check=True)
+    subprocess.run(["go", "build", "-o", str(BINARY), "."], cwd=ROOT / "server", check=True)
 
 
 if __name__ == "__main__":

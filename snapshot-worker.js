@@ -1,7 +1,14 @@
 // Parse the full upstream response away from the render thread and transfer its cell buffers.
-self.onmessage = async ({ data: { id, path } }) => {
+self.onmessage = async ({ data: { id, path, session, checkpoint } }) => {
   try {
-    const response = await fetch('/api/' + path, { method: path === 'state' ? 'GET' : 'POST', cache: 'no-store' });
+    const response = await fetch('/api/' + path, {
+      method: path === 'state' ? 'GET' : 'POST',
+      cache: 'no-store',
+      headers: {
+        'X-Simulation-Session': session,
+        'X-Simulation-Checkpoint': checkpoint,
+      },
+    });
     if (!response.ok) throw new Error('生态请求失败（HTTP ' + response.status + '）');
     const text = await response.text();
     const state = JSON.parse(text.replace(/("(?:seed|state_hash)"\s*:\s*)(\d+)/g, '$1"$2"'));
