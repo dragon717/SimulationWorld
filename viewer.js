@@ -23,7 +23,6 @@ export async function openHabitat() {
     antialias: !simulated,
     powerPreference: 'high-performance',
   });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, simulated ? 1.25 : 2));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.autoUpdate = true;
   renderer.shadowMap.needsUpdate = true;
@@ -184,7 +183,9 @@ export async function openHabitat() {
   }
   function resize() {
     const { width, height } = viewport.getBoundingClientRect();
-    renderer.setSize(width, height, false);
+    if (!width || !height) return;
+    const ratio = live ? Math.min(1.25, Math.sqrt(900_000 / (width * height))) : 2;
+    renderer.setDrawingBufferSize(width, height, Math.min(devicePixelRatio, ratio));
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
   }

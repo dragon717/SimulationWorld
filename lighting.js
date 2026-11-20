@@ -188,6 +188,7 @@ export function caseGlass(reflection) {
 // occlusion measurements at its edge so the sun is applied exactly once.
 const shadowCall = (i, intensity) =>
   `getShadow(directionalShadowMap[${i}],directionalLightShadows[${i}].shadowMapSize,${intensity},directionalLightShadows[${i}].shadowBias,directionalLightShadows[${i}].shadowRadius,vDirectionalShadowCoord[${i}])`;
+const wideShadow = shadowCall(0, 'directionalLightShadows[0].shadowIntensity');
 const visibility = `
 uniform vec4 cloudField;
 float exhibitVisibility(){
@@ -196,14 +197,17 @@ float exhibitVisibility(){
   vec2 p=(vDirectionalShadowCoord[0].xy-.5)*18.-cloudField.xy;
   float cover=smoothstep(-.65,.64,.55*sin(p.x+.42*sin(p.y))+.40*cos(p.y*1.43-p.x*.63)+.23*sin(dot(p,vec2(2.3,1.8))));
   float transmission=exp2(-cloudField.w*cover);
-  float wide=${shadowCall(0, 'directionalLightShadows[0].shadowIntensity')};
   #if NUM_DIR_LIGHT_SHADOWS > 1
     vec3 q=vDirectionalShadowCoord[1].xyz/vDirectionalShadowCoord[1].w;
     float border=min(min(q.x,q.y),min(1.-q.x,1.-q.y));
     float w=directionalLightShadows[1].shadowIntensity*smoothstep(.0,.12,border);
-    if(w>0. && q.z>0. && q.z<1.)return transmission*mix(wide,${shadowCall(1, '1.')},w);
+    if(w>0. && q.z>0. && q.z<1.){
+      float localShadow=${shadowCall(1, '1.')};
+      if(w>=1.)return transmission*localShadow;
+      return transmission*mix(${wideShadow},localShadow,w);
+    }
   #endif
-  return transmission*wide;
+  return transmission*${wideShadow};
 #else
   return 1.;
 #endif
